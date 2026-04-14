@@ -1,7 +1,8 @@
 /*
- * SPDX-FileCopyrightText: 2026
- *
- * SPDX-License-Identifier: Apache-2.0
+ * Description: Robo cat ears controller app header
+ * Author: Jeff Underdown (junderdo)
+ * Copyright (C) 2026 Milk Lab Creations
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #pragma once
 
@@ -177,6 +178,25 @@ private:
      */
     bool writeCharacteristic(const std::string &data);
 
+    /**
+     * @brief Save the last connected device to NVS
+     *
+     * @return true if successful, otherwise false
+     */
+    bool saveLastConnectedDevice();
+
+    /**
+     * @brief Load the last connected device from NVS
+     *
+     * @return true if successful, otherwise false
+     */
+    bool loadLastConnectedDevice();
+
+    /**
+     * @brief Attempt to reconnect to the last connected device
+     */
+    void attemptAutoReconnect();
+
     static RoboCatEars *_instance;
     lv_obj_t *_scan_screen;
     lv_obj_t *_control_screen;
@@ -192,10 +212,17 @@ private:
     bool _connected;
     std::string _connected_address;
     std::string _connected_device_name;
+    esp_ble_addr_type_t _connected_address_type;
     uint16_t _conn_id;
     esp_gatt_if_t _gattc_if;
     uint16_t _char_handle;
     bool _service_discovered;
+    
+    // Auto-reconnect support
+    std::string _last_connected_address;
+    esp_ble_addr_type_t _last_connected_address_type;
+    std::string _last_connected_name;
+    bool _auto_reconnect_attempted;
 };
 
 } // namespace esp_brookesia::apps
