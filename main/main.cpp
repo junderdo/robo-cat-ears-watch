@@ -15,6 +15,11 @@
 #include "esp_lib_utils.h"
 #include "./dark/stylesheet.hpp"
 
+extern "C" {
+#include "sysinfo.h"
+#include "port_axp2101.h"
+}
+
 using namespace esp_brookesia;
 using namespace esp_brookesia::gui;
 using namespace esp_brookesia::systems::phone;
@@ -32,7 +37,7 @@ constexpr bool EXAMPLE_SHOW_MEM_INFO = false;
 
 extern "C" void app_main(void)
 {
-    ESP_UTILS_LOGI("Display ESP-Brookesia phone demo");
+    ESP_UTILS_LOGI("Display ESP-Brookesia");
 
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = LVGL_PORT_INIT_CONFIG(),
@@ -55,6 +60,16 @@ extern "C" void app_main(void)
 
         return true;
     });
+
+    /* Init I2C link to AXP2101 chip for system monitoring */
+    ESP_ERROR_CHECK(i2c_init());
+    ESP_UTILS_LOGI("I2C initialized successfully");
+
+    ESP_ERROR_CHECK(pmu_init());
+    ESP_UTILS_LOGI("PMU initialized successfully");
+
+    // PMU monitoring task disabled - battery info already available via pmu_get_battery_percent()
+    // xTaskCreate(pmu_hander_task, "App/pwr", 4 * 1024, NULL, 10, NULL);
 
     /* Create a phone object */
     Phone *phone = new (std::nothrow) Phone();
@@ -100,6 +115,23 @@ extern "C" void app_main(void)
                 "Refresh status bar failed"
             );
         }, 1000, phone);
+
+        lv_timer_create([](lv_timer_t *t) {
+            Phone *phone = (Phone *)t->user_data;
+
+            ESP_UTILS_CHECK_NULL_EXIT(phone, "Invalid phone");
+
+            /* Update battery percent every 10 seconds */
+            int battery_percent = pmu_get_battery_percent();
+            if (battery_percent >= 0) {
+                // Assuming charging status is false for now, can be enhanced later
+                bool is_charging = false;
+                ESP_UTILS_CHECK_FALSE_EXIT(
+                    phone->getDisplay().getStatusBar()->setBatteryPercent(is_charging, battery_percent),
+                    "Refresh status bar failed"
+                );
+            }
+        }, 10000, phone);
     }
 
     if constexpr (EXAMPLE_SHOW_MEM_INFO) {

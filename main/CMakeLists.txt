@@ -1,7 +1,7 @@
 idf_component_register(
-    SRCS "main.cpp"
+    SRCS "port_axp2101.cpp" "main.cpp" "sysinfo.cpp"
     INCLUDE_DIRS "."
-    REQUIRES bt nvs_flash
+    REQUIRES bt nvs_flash XPowersLib
     PRIV_REQUIRES brookesia_app_robo_cat_ears)
 
 # Force link of Bluetooth library
