@@ -158,7 +158,7 @@ dependencies:
       type: service
     version: 1.2.1
   espressif/esp_lcd_touch_ft5x06:
-    component_hash: aa3f170c321859146b4084d5e168828d026cb7c67eebfaa524ce48b428182c1e
+    component_hash: 8ae101b4a321b6327d98751b049e3c7fff2718ad04d676259369ff85d4edbcdf
     dependencies:
     - name: espressif/esp_lcd_touch
       registry_url: https://components.espressif.com
@@ -166,11 +166,11 @@ dependencies:
       version: ^1.2.0
     - name: idf
       require: private
-      version: '>=4.4.2'
+      version: '>=5.2'
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.1.0
+    version: 1.1.0~1
   espressif/esp_lvgl_port:
     component_hash: b6360960f47b6776462e7092861b3ea66477ffb762a01baa0aecbb3d74cd50f4
     dependencies:
@@ -369,6 +369,6 @@ direct_dependencies:
 - idf
 - lvgl/lvgl
 - waveshare/esp32_s3_touch_amoled_2_06
-manifest_hash: 37dcb28bba9308fe1b3ce54ff3317024bca917c1d677433f5cdebb4f3bcaa7f6
+manifest_hash: eff34763a0afe048dbf713da60f29b0988dd88049c113721864c72d1d2410298
 target: esp32s3
 version: 2.0.0

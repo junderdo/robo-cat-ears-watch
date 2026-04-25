@@ -14,6 +14,7 @@
 #define ESP_UTILS_LOG_TAG "Main"
 #include "esp_lib_utils.h"
 #include "./dark/stylesheet.hpp"
+#include "esp_brookesia_app_system_info.hpp"
 
 extern "C" {
 #include "sysinfo.h"
@@ -39,11 +40,21 @@ extern "C" void app_main(void)
 {
     ESP_UTILS_LOGI("Display ESP-Brookesia");
 
+    /* Initialize display BSP - this initializes I2C bus for touch */
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = LVGL_PORT_INIT_CONFIG(),
     };
     ESP_UTILS_CHECK_NULL_EXIT(bsp_display_start_with_config(&cfg), "Start display failed");
+
+    /* Turn on backlight */
     ESP_UTILS_CHECK_ERROR_EXIT(bsp_display_backlight_on(), "Turn on display backlight failed");
+
+    /* Try PMU init AFTER display to avoid I2C conflicts - non-fatal */
+    if (i2c_init() == ESP_OK && pmu_init() == ESP_OK) {
+        ESP_UTILS_LOGI("PMU initialized for battery monitoring");
+    } else {
+        ESP_UTILS_LOGW("PMU not available - battery monitoring disabled");
+    }
 
     /* Configure GUI lock */
     LvLock::registerCallbacks([](int timeout_ms) {
@@ -60,16 +71,6 @@ extern "C" void app_main(void)
 
         return true;
     });
-
-    /* Init I2C link to AXP2101 chip for system monitoring */
-    ESP_ERROR_CHECK(i2c_init());
-    ESP_UTILS_LOGI("I2C initialized successfully");
-
-    ESP_ERROR_CHECK(pmu_init());
-    ESP_UTILS_LOGI("PMU initialized successfully");
-
-    // PMU monitoring task disabled - battery info already available via pmu_get_battery_percent()
-    // xTaskCreate(pmu_hander_task, "App/pwr", 4 * 1024, NULL, 10, NULL);
 
     /* Create a phone object */
     Phone *phone = new (std::nothrow) Phone();
@@ -130,6 +131,12 @@ extern "C" void app_main(void)
                     phone->getDisplay().getStatusBar()->setBatteryPercent(is_charging, battery_percent),
                     "Refresh status bar failed"
                 );
+            }
+            
+            /* Update SystemInfo app if it's running */
+            esp_brookesia::apps::SystemInfo *system_info_app = esp_brookesia::apps::SystemInfo::requestInstance();
+            if (system_info_app) {
+                system_info_app->updateSystemInfo();
             }
         }, 10000, phone);
     }

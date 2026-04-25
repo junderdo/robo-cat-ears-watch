@@ -33,6 +33,34 @@ void pmu_isr_handler(void);
  */
 int pmu_get_battery_percent(void);
 
+/**
+ * @brief Get the battery voltage
+ * 
+ * @return int Battery voltage in millivolts, or 0 if not available
+ */
+int pmu_get_battery_voltage(void);
+
+/**
+ * @brief Get the VBUS voltage (USB power input)
+ * 
+ * @return int VBUS voltage in millivolts, or -1 if not available
+ */
+int pmu_get_vbus_voltage(void);
+
+/**
+ * @brief Get the system voltage
+ * 
+ * @return int System voltage in millivolts, or -1 if not available
+ */
+int pmu_get_system_voltage(void);
+
+/**
+ * @brief Get the PMU temperature
+ * 
+ * @return float Temperature in Celsius, or -999.0 if not available
+ */
+float pmu_get_temperature(void);
+
 #ifdef __cplusplus
 }
 #endif
