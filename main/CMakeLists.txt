@@ -1,8 +1,8 @@
 idf_component_register(
-    SRCS "main.cpp"
-    INCLUDE_DIRS "."
-    REQUIRES bt nvs_flash
-    PRIV_REQUIRES brookesia_app_robo_cat_ears)
+    SRCS "main.cpp" "system/status.cpp"
+    INCLUDE_DIRS "." "system"
+    REQUIRES bt nvs_flash XPowersLib
+    PRIV_REQUIRES brookesia_app_robo_cat_ears brookesia_app_system_info)
 
 # Force link of Bluetooth library
 idf_build_get_property(build_components BUILD_COMPONENTS)
