@@ -1,7 +1,8 @@
 /*
- * SPDX-FileCopyrightText: Jeffrey Underdown (jeff@milklabcreations.com) Milk Lab Creations 2026
- *
- * SPDX-License-Identifier: Apache-2.0
+ * Description: Robo cat ears controller app
+ * Author: Jeff Underdown (junderdo)
+ * Copyright (C) 2026 Milk Lab Creations
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "esp_bt.h"
 #include "esp_bt_main.h"
@@ -59,10 +60,15 @@ RoboCatEars::RoboCatEars(bool use_status_bar, bool use_navigation_bar):
     _connected(false),
     _connected_address(""),
     _connected_device_name(""),
+    _connected_address_type(BLE_ADDR_TYPE_PUBLIC),
     _conn_id(0),
     _gattc_if(ESP_GATT_IF_NONE),
     _char_handle(0),
-    _service_discovered(false)
+    _service_discovered(false),
+    _last_connected_address(""),
+    _last_connected_address_type(BLE_ADDR_TYPE_PUBLIC),
+    _last_connected_name(""),
+    _auto_reconnect_attempted(false)
 {
 }
 
@@ -75,11 +81,17 @@ bool RoboCatEars::init()
 {
     ESP_UTILS_LOGD("Init");
 
+    // Reset auto-reconnect flag when reinitializing
+    _auto_reconnect_attempted = false;
+
     // Initialize BLE
     if (!initBLE()) {
         ESP_UTILS_LOGE("Failed to initialize BLE");
         return false;
     }
+
+    // Load last connected device from NVS
+    loadLastConnectedDevice();
 
     return true;
 }
@@ -87,6 +99,33 @@ bool RoboCatEars::init()
 bool RoboCatEars::deinit()
 {
     ESP_UTILS_LOGD("Deinit");
+
+    // Disconnect from any connected device before cleanup
+    if (_connected) {
+        ESP_UTILS_LOGI("Deinit: Disconnecting from device before cleanup");
+        disconnect();
+        
+        // Give a moment for the close command to be sent to BLE controller
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Wait for disconnect to complete and be acknowledged by peripheral
+        // This ensures the peripheral receives the disconnect packet
+        int wait_count = 0;
+        while (_connected && wait_count < 20) {  // Wait up to 1 second
+            vTaskDelay(pdMS_TO_TICKS(50));
+            wait_count++;
+            if (wait_count % 4 == 0) {
+                ESP_UTILS_LOGD("Deinit: Still waiting for disconnect... (%d/20)", wait_count);
+            }
+        }
+        
+        if (_connected) {
+            ESP_UTILS_LOGW("Deinit: Device still connected after timeout, forcing cleanup");
+            _connected = false;
+        } else {
+            ESP_UTILS_LOGI("Deinit: Disconnect completed successfully after %d checks", wait_count);
+        }
+    }
 
     deinitBLE();
 
@@ -126,8 +165,14 @@ bool RoboCatEars::run(void)
     // Start on the scan screen
     switchToScreen(0);
 
-    // Start initial scan
-    startScan();
+    // Attempt auto-reconnect to last device if available
+    if (!_last_connected_address.empty() && !_connected) {
+        ESP_UTILS_LOGI("Attempting auto-reconnect to last device: %s", _last_connected_address.c_str());
+        attemptAutoReconnect();
+    } else {
+        // Start initial scan if not auto-reconnecting
+        startScan();
+    }
 
     return true;
 }
@@ -135,6 +180,33 @@ bool RoboCatEars::run(void)
 bool RoboCatEars::back(void)
 {
     ESP_UTILS_LOGD("Back");
+
+    // Disconnect from any connected device before exiting
+    if (_connected) {
+        ESP_UTILS_LOGI("Back: Disconnecting from device before exit");
+        disconnect();
+        
+        // Give a moment for the close command to be sent to BLE controller
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Wait for disconnect to complete and be acknowledged by peripheral
+        // This ensures the peripheral receives the disconnect packet
+        int wait_count = 0;
+        while (_connected && wait_count < 20) {  // Wait up to 1 second
+            vTaskDelay(pdMS_TO_TICKS(50));
+            wait_count++;
+            if (wait_count % 4 == 0) {
+                ESP_UTILS_LOGD("Back: Still waiting for disconnect... (%d/20)", wait_count);
+            }
+        }
+        
+        if (_connected) {
+            ESP_UTILS_LOGW("Back: Device still connected after timeout, forcing cleanup");
+            _connected = false;
+        } else {
+            ESP_UTILS_LOGI("Back: Disconnect completed successfully after %d checks", wait_count);
+        }
+    }
 
     // Stop scanning before exiting
     stopScan();
@@ -246,6 +318,9 @@ bool RoboCatEars::initBLE()
                 ESP_UTILS_LOGI("Connected to device, conn_id: %d", app->_conn_id);
                 app->updateConnectionStatus();
                 
+                // Save to NVS for auto-reconnect
+                app->saveLastConnectedDevice();
+                
                 // Start service discovery
                 ESP_UTILS_LOGI("Starting service search");
                 esp_ble_gattc_search_service(gattc_if, param->open.conn_id, nullptr);
@@ -256,11 +331,13 @@ bool RoboCatEars::initBLE()
             }
             break;
         case ESP_GATTC_CLOSE_EVT:
-            ESP_UTILS_LOGI("Disconnected from device (conn_id=%d)", app->_conn_id);
+            ESP_UTILS_LOGI("ESP_GATTC_CLOSE_EVT: Disconnected from device (conn_id=%d, reason=%d)", 
+                          app->_conn_id, param->close.reason);
             app->_connected = false;
             app->_conn_id = 0;
             app->_connected_address = "";
             app->_connected_device_name = "";
+            app->_connected_address_type = BLE_ADDR_TYPE_PUBLIC;
             app->_char_handle = 0;
             app->_service_discovered = false;
             app->updateConnectionStatus();
@@ -368,14 +445,40 @@ void RoboCatEars::deinitBLE()
         return;
     }
 
-    ESP_UTILS_LOGD("Stopping BLE scanning (keeping BLE stack initialized)");
+    ESP_UTILS_LOGD("Deinitializing BLE");
 
-    // Only stop scanning, don't deinitialize the BLE stack
-    // as it might be used by other parts of the system
+    // Stop scanning first
     stopScan();
 
-    // Unregister our callback
-    // Note: We don't fully deinitialize BLE as it might be shared
+    // If still connected, force disconnect was already done in deinit()/back()
+    // but double-check and clean up any lingering state
+    if (_connected) {
+        ESP_UTILS_LOGW("deinitBLE: Still showing connected, forcing final cleanup");
+        _connected = false;
+        _conn_id = 0;
+        _connected_address = "";
+        _connected_device_name = "";
+        _connected_address_type = BLE_ADDR_TYPE_PUBLIC;
+        _char_handle = 0;
+        _service_discovered = false;
+    }
+
+    // Unregister the GATT client app to clean up state
+    if (_gattc_if != ESP_GATT_IF_NONE) {
+        ESP_UTILS_LOGI("Unregistering GATT client app (gattc_if=%d)", _gattc_if);
+        esp_err_t ret = esp_ble_gattc_app_unregister(_gattc_if);
+        if (ret != ESP_OK) {
+            ESP_UTILS_LOGW("Failed to unregister GATT client: %s", esp_err_to_name(ret));
+        } else {
+            ESP_UTILS_LOGI("GATT client unregistered successfully");
+            // Give the BLE stack time to fully clean up after unregister
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        _gattc_if = ESP_GATT_IF_NONE;
+    }
+
+    // Note: We don't fully deinitialize the BLE stack (Bluedroid/controller)
+    // as it might be shared by other parts of the system
     
     _ble_initialized = false;
 }
@@ -388,10 +491,11 @@ bool RoboCatEars::startScan()
     }
 
     if (_scanning) {
+        ESP_UTILS_LOGD("Already scanning, stopping previous scan");
         stopScan();
     }
 
-    ESP_UTILS_LOGD("Starting BLE scan");
+    ESP_UTILS_LOGI("Starting BLE scan (clearing %d previous devices)", _discovered_devices.size());
 
     // Clear previous devices and update UI to show scanning status
     _discovered_devices.clear();
@@ -477,6 +581,9 @@ bool RoboCatEars::connectToDevice(const std::string &address)
     } else {
         ESP_UTILS_LOGW("Device not in discovered list, using default address type PUBLIC");
     }
+
+    // Store for later saving to NVS
+    _connected_address_type = addr_type;
 
     // Parse MAC address string to esp_bd_addr_t
     esp_bd_addr_t remote_addr;
@@ -1063,6 +1170,131 @@ bool RoboCatEars::writeCharacteristic(const std::string &data)
     }
     
     return true;
+}
+
+bool RoboCatEars::saveLastConnectedDevice()
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open("robo_cat_ears", NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_UTILS_LOGE("Failed to open NVS: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    // Save address
+    err = nvs_set_str(nvs_handle, "last_addr", _connected_address.c_str());
+    if (err != ESP_OK) {
+        ESP_UTILS_LOGE("Failed to save address: %s", esp_err_to_name(err));
+        nvs_close(nvs_handle);
+        return false;
+    }
+
+    // Save address type
+    err = nvs_set_u8(nvs_handle, "last_addr_type", (uint8_t)_connected_address_type);
+    if (err != ESP_OK) {
+        ESP_UTILS_LOGE("Failed to save address type: %s", esp_err_to_name(err));
+    }
+
+    // Save name
+    err = nvs_set_str(nvs_handle, "last_name", _connected_device_name.c_str());
+    if (err != ESP_OK) {
+        ESP_UTILS_LOGE("Failed to save name: %s", esp_err_to_name(err));
+    }
+
+    err = nvs_commit(nvs_handle);
+    nvs_close(nvs_handle);
+
+    ESP_UTILS_LOGI("Saved last connected device to NVS: %s (%s)", 
+                   _connected_device_name.c_str(), _connected_address.c_str());
+    return true;
+}
+
+bool RoboCatEars::loadLastConnectedDevice()
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open("robo_cat_ears", NVS_READONLY, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_UTILS_LOGD("No saved device found or NVS not initialized: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    // Load address
+    size_t required_size = 0;
+    err = nvs_get_str(nvs_handle, "last_addr", nullptr, &required_size);
+    if (err != ESP_OK || required_size == 0) {
+        ESP_UTILS_LOGD("No saved address found");
+        nvs_close(nvs_handle);
+        return false;
+    }
+
+    char* address = (char*)malloc(required_size);
+    if (!address) {
+        nvs_close(nvs_handle);
+        return false;
+    }
+    
+    err = nvs_get_str(nvs_handle, "last_addr", address, &required_size);
+    if (err == ESP_OK) {
+        _last_connected_address = std::string(address);
+    }
+    free(address);
+
+    // Load address type
+    uint8_t addr_type = BLE_ADDR_TYPE_PUBLIC;
+    err = nvs_get_u8(nvs_handle, "last_addr_type", &addr_type);
+    if (err == ESP_OK) {
+        _last_connected_address_type = (esp_ble_addr_type_t)addr_type;
+    }
+
+    // Load name
+    required_size = 0;
+    err = nvs_get_str(nvs_handle, "last_name", nullptr, &required_size);
+    if (err == ESP_OK && required_size > 0) {
+        char* name = (char*)malloc(required_size);
+        if (name) {
+            err = nvs_get_str(nvs_handle, "last_name", name, &required_size);
+            if (err == ESP_OK) {
+                _last_connected_name = std::string(name);
+            }
+            free(name);
+        }
+    }
+
+    nvs_close(nvs_handle);
+
+    if (!_last_connected_address.empty()) {
+        ESP_UTILS_LOGI("Loaded last connected device from NVS: %s (%s)", 
+                       _last_connected_name.c_str(), _last_connected_address.c_str());
+        return true;
+    }
+
+    return false;
+}
+
+void RoboCatEars::attemptAutoReconnect()
+{
+    if (_auto_reconnect_attempted || _last_connected_address.empty()) {
+        return;
+    }
+
+    _auto_reconnect_attempted = true;
+
+    ESP_UTILS_LOGI("Attempting auto-reconnect to: %s (%s)",
+                   _last_connected_name.c_str(), _last_connected_address.c_str());
+
+    // Add the device to discovered list temporarily so connectToDevice can find it
+    BleDevice device;
+    device.name = _last_connected_name.empty() ? "Saved Device" : _last_connected_name;
+    device.address = _last_connected_address;
+    device.address_type = _last_connected_address_type;
+    device.rssi = -50; // Placeholder RSSI for saved device
+    _discovered_devices.push_back(device);
+    
+    // Update UI to show the saved device
+    updateDeviceList();
+
+    // Attempt connection
+    connectToDevice(_last_connected_address);
 }
 
 ESP_UTILS_REGISTER_PLUGIN_WITH_CONSTRUCTOR(systems::base::App, RoboCatEars, APP_NAME, []()

@@ -1,7 +1,8 @@
 /*
- * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: CC0-1.0
+ * Description: Main boot and initialization function for robo cat ears watch
+ * Author: Jeff Underdown (junderdo)
+ * Copyright (C) 2026 Milk Lab Creations
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "bsp/esp-bsp.h"
