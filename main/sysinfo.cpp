@@ -45,7 +45,6 @@ static void IRAM_ATTR pmu_irq_handler(void *arg) {
     xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
 }
 
-// I2C init with new API
 esp_err_t i2c_init() {
     // Get the I2C bus handle from BSP (already initialized for touch controller)
     i2c_bus_handle = bsp_i2c_get_handle();

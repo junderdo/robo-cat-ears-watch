@@ -124,9 +124,9 @@ extern "C" void app_main(void)
 
             /* Update battery percent every 10 seconds */
             int battery_percent = pmu_get_battery_percent();
+            bool is_charging = pmu_is_charging();
+            ESP_UTILS_LOGI("Battery: %d%%, Charging: %s", battery_percent, is_charging ? "YES" : "NO");
             if (battery_percent >= 0) {
-                // Assuming charging status is false for now, can be enhanced later
-                bool is_charging = false;
                 ESP_UTILS_CHECK_FALSE_EXIT(
                     phone->getDisplay().getStatusBar()->setBatteryPercent(is_charging, battery_percent),
                     "Refresh status bar failed"
@@ -138,7 +138,7 @@ extern "C" void app_main(void)
             if (system_info_app) {
                 system_info_app->updateSystemInfo();
             }
-        }, 10000, phone);
+        }, 2000, phone);
     }
 
     if constexpr (EXAMPLE_SHOW_MEM_INFO) {

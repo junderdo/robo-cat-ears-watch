@@ -13,7 +13,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-// For now, force AXP2101 since manufacturer confirms it
 #define XPOWERS_CHIP_AXP2101
 #include "XPowersLib.h"
 #include "port_axp2101.h"
@@ -97,4 +96,9 @@ int pmu_get_system_voltage()
 float pmu_get_temperature()
 {
     return PMU.getTemperature();
+}
+
+bool pmu_is_charging()
+{
+    return PMU.isCharging();
 }

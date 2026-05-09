@@ -61,6 +61,13 @@ int pmu_get_system_voltage(void);
  */
 float pmu_get_temperature(void);
 
+/**
+ * @brief Check if the battery is currently charging
+ * 
+ * @return bool true if charging, false otherwise
+ */
+bool pmu_is_charging(void);
+
 #ifdef __cplusplus
 }
 #endif
