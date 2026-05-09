@@ -16,10 +16,8 @@
 #include "./dark/stylesheet.hpp"
 #include "esp_brookesia_app_system_info.hpp"
 
-extern "C" {
-#include "sysinfo.h"
-#include "port_axp2101.h"
-}
+// C includes
+#include "system/status.h"
 
 using namespace esp_brookesia;
 using namespace esp_brookesia::gui;
@@ -36,6 +34,9 @@ using namespace esp_brookesia::systems::phone;
 
 constexpr bool EXAMPLE_SHOW_MEM_INFO = false;
 
+// Global system status instance
+static SystemStatus *g_system_status = nullptr;
+
 extern "C" void app_main(void)
 {
     ESP_UTILS_LOGI("Display ESP-Brookesia");
@@ -49,11 +50,16 @@ extern "C" void app_main(void)
     /* Turn on backlight */
     ESP_UTILS_CHECK_ERROR_EXIT(bsp_display_backlight_on(), "Turn on display backlight failed");
 
-    /* Try PMU init AFTER display to avoid I2C conflicts - non-fatal */
-    if (i2c_init() == ESP_OK && pmu_init() == ESP_OK) {
-        ESP_UTILS_LOGI("PMU initialized for battery monitoring");
+    /* Initialize SystemStatus AFTER display to avoid I2C conflicts - non-fatal */
+    g_system_status = new (std::nothrow) SystemStatus();
+    if (g_system_status && g_system_status->init() == ESP_OK) {
+        ESP_UTILS_LOGI("SystemStatus initialized for battery monitoring");
     } else {
-        ESP_UTILS_LOGW("PMU not available - battery monitoring disabled");
+        ESP_UTILS_LOGW("SystemStatus not available - battery monitoring disabled");
+        if (g_system_status) {
+            delete g_system_status;
+            g_system_status = nullptr;
+        }
     }
 
     /* Configure GUI lock */
@@ -122,15 +128,17 @@ extern "C" void app_main(void)
 
             ESP_UTILS_CHECK_NULL_EXIT(phone, "Invalid phone");
 
-            /* Update battery percent every 10 seconds */
-            int battery_percent = pmu_get_battery_percent();
-            bool is_charging = pmu_is_charging();
-            ESP_UTILS_LOGI("Battery: %d%%, Charging: %s", battery_percent, is_charging ? "YES" : "NO");
-            if (battery_percent >= 0) {
-                ESP_UTILS_CHECK_FALSE_EXIT(
-                    phone->getDisplay().getStatusBar()->setBatteryPercent(is_charging, battery_percent),
-                    "Refresh status bar failed"
-                );
+            /* Update battery percent every 2 seconds */
+            if (g_system_status) {
+                int battery_percent = g_system_status->getBatteryPercent();
+                bool is_charging = g_system_status->isCharging();
+                ESP_UTILS_LOGI("Battery: %d%%, Charging: %s", battery_percent, is_charging ? "YES" : "NO");
+                if (battery_percent >= 0) {
+                    ESP_UTILS_CHECK_FALSE_EXIT(
+                        phone->getDisplay().getStatusBar()->setBatteryPercent(is_charging, battery_percent),
+                        "Refresh status bar failed"
+                    );
+                }
             }
             
             /* Update SystemInfo app if it's running */

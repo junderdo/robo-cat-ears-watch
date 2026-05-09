@@ -8,6 +8,9 @@
 
 #include "systems/phone/esp_brookesia_phone_app.hpp"
 
+// Forward declaration
+class SystemStatus;
+
 namespace esp_brookesia::apps {
 
 /**
@@ -64,6 +67,7 @@ private:
     static SystemInfo *_instance;
     
     lv_obj_t *_info_label;  // Label to display system information
+    SystemStatus *_system_status;  // System status instance for polling PMU data
 };
 
 } // namespace esp_brookesia::apps

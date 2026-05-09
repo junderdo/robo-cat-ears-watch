@@ -1,6 +1,6 @@
 
 /*
- * Description: AXP2101 System info
+ * Description: System status and I2C implementation for hardware monitoring
  * Author: Jeff Underdown (junderdo)
  * Copyright (C) 2026 Milk Lab Creations
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -15,11 +15,14 @@
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "sdkconfig.h"
-#include "sysinfo.h"
-#include "port_axp2101.h"
+#include "system/status.h"
 #include "bsp/esp-bsp.h"
 
+#define XPOWERS_CHIP_AXP2101
+#include "XPowersLib.h"
+
 #define TAG "sysinfo"
+#define AXP2101_SLAVE_ADDRESS 0x34
 
 // PMU interrupt and I2C config
 #define PMU_INPUT_PIN (gpio_num_t) 10  // Adjust if needed
@@ -34,16 +37,6 @@
 static i2c_master_bus_handle_t i2c_bus_handle = NULL;
 static i2c_master_dev_handle_t pmu_dev_handle = NULL;
 static QueueHandle_t gpio_evt_queue = NULL;
-
-// Function declarations
-extern esp_err_t pmu_init();
-extern void pmu_isr_handler();
-
-// ISR for GPIO
-static void IRAM_ATTR pmu_irq_handler(void *arg) {
-    uint32_t gpio_num = (uint32_t)arg;
-    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
-}
 
 esp_err_t i2c_init() {
     // Get the I2C bus handle from BSP (already initialized for touch controller)
@@ -139,7 +132,138 @@ int pmu_register_write_byte(uint8_t devAddr, uint8_t regAddr, uint8_t *data, uin
 // PMU event task
 void pmu_hander_task(void *args) {
     while (1) {
-        pmu_isr_handler();
+        // PMU handler can be extended if needed
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+}
+
+// ==================== SystemStatus Class Implementation ====================
+
+SystemStatus::SystemStatus() : pmu_instance(nullptr), initialized(false) {
+}
+
+SystemStatus::~SystemStatus() {
+    if (pmu_instance) {
+        delete static_cast<XPowersPMU*>(pmu_instance);
+        pmu_instance = nullptr;
+    }
+}
+
+esp_err_t SystemStatus::init() {
+    if (initialized) {
+        ESP_LOGW(TAG, "SystemStatus already initialized");
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "Initializing SystemStatus (PMU in read-only mode for battery monitoring)...");
+    
+    // Initialize I2C if not already done
+    if (i2c_init() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize I2C");
+        return ESP_FAIL;
+    }
+    
+    // Give the PMU time to stabilize after power-on
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    // Create PMU instance
+    pmu_instance = new (std::nothrow) XPowersPMU();
+    if (!pmu_instance) {
+        ESP_LOGE(TAG, "Failed to allocate PMU instance");
+        return ESP_FAIL;
+    }
+    
+    XPowersPMU* pmu = static_cast<XPowersPMU*>(pmu_instance);
+    
+    // Initialize PMU object for I2C communication (read-only)
+    ESP_LOGI(TAG, "Calling PMU.begin() for I2C setup...");
+    bool begin_result = pmu->begin(AXP2101_SLAVE_ADDRESS, pmu_register_read, pmu_register_write_byte);
+    
+    if (!begin_result) {
+        ESP_LOGW(TAG, "PMU.begin() returned false - continuing anyway");
+        // Even if begin() fails, the I2C callbacks are set up, so we can still read values
+    } else {
+        ESP_LOGI(TAG, "PMU.begin() succeeded");
+    }
+    
+    // Enable battery monitoring measurements (safe - these don't change power channels)
+    pmu->enableVbusVoltageMeasure();
+    pmu->enableBattVoltageMeasure();
+    pmu->enableSystemVoltageMeasure();
+    pmu->enableTemperatureMeasure();
+    
+    // Disable TS pin to avoid charging issues (safe - doesn't affect display power)
+    pmu->disableTSPinMeasure();
+    
+    initialized = true;
+    ESP_LOGI(TAG, "SystemStatus init complete - read-only battery monitoring enabled");
+    
+    // Log current battery status (if available)
+    if (pmu->isBatteryConnect()) {
+        ESP_LOGI(TAG, "Battery connected: %d%%, %d mV", 
+                 pmu->getBatteryPercent(), pmu->getBattVoltage());
+    } else {
+        ESP_LOGI(TAG, "Battery not connected");
+    }
+    
+    return ESP_OK;
+}
+
+int SystemStatus::getBatteryPercent() {
+    if (!initialized || !pmu_instance) {
+        return -1;
+    }
+    XPowersPMU* pmu = static_cast<XPowersPMU*>(pmu_instance);
+    if (!pmu->isBatteryConnect()) {
+        return -1;
+    }
+    return pmu->getBatteryPercent();
+}
+
+int SystemStatus::getBatteryVoltage() {
+    if (!initialized || !pmu_instance) {
+        return 0;
+    }
+    XPowersPMU* pmu = static_cast<XPowersPMU*>(pmu_instance);
+    return pmu->getBattVoltage();
+}
+
+int SystemStatus::getVbusVoltage() {
+    if (!initialized || !pmu_instance) {
+        return -1;
+    }
+    XPowersPMU* pmu = static_cast<XPowersPMU*>(pmu_instance);
+    return pmu->getVbusVoltage();
+}
+
+int SystemStatus::getSystemVoltage() {
+    if (!initialized || !pmu_instance) {
+        return -1;
+    }
+    XPowersPMU* pmu = static_cast<XPowersPMU*>(pmu_instance);
+    return pmu->getSystemVoltage();
+}
+
+float SystemStatus::getTemperature() {
+    if (!initialized || !pmu_instance) {
+        return -999.0f;
+    }
+    XPowersPMU* pmu = static_cast<XPowersPMU*>(pmu_instance);
+    return pmu->getTemperature();
+}
+
+bool SystemStatus::isCharging() {
+    if (!initialized || !pmu_instance) {
+        return false;
+    }
+    XPowersPMU* pmu = static_cast<XPowersPMU*>(pmu_instance);
+    return pmu->isCharging();
+}
+
+bool SystemStatus::isBatteryConnected() {
+    if (!initialized || !pmu_instance) {
+        return false;
+    }
+    XPowersPMU* pmu = static_cast<XPowersPMU*>(pmu_instance);
+    return pmu->isBatteryConnect();
 }

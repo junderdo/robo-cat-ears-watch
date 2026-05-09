@@ -1,6 +1,6 @@
 idf_component_register(
-    SRCS "port_axp2101.cpp" "main.cpp" "sysinfo.cpp"
-    INCLUDE_DIRS "."
+    SRCS "main.cpp" "system/status.cpp"
+    INCLUDE_DIRS "." "system"
     REQUIRES bt nvs_flash XPowersLib
     PRIV_REQUIRES brookesia_app_robo_cat_ears brookesia_app_system_info)
 

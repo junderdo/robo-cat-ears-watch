@@ -12,10 +12,7 @@
 #define ESP_UTILS_LOG_TAG "BS:SystemInfo"
 #include "esp_lib_utils.h"
 #include "esp_brookesia_app_system_info.hpp"
-
-extern "C" {
-#include "port_axp2101.h"
-}
+#include "system/status.h"
 
 #define APP_NAME "SYSTEM_INFO"
 
@@ -39,17 +36,34 @@ SystemInfo *SystemInfo::requestInstance(bool use_status_bar, bool use_navigation
 
 SystemInfo::SystemInfo(bool use_status_bar, bool use_navigation_bar):
     App(APP_NAME, &esp_brookesia_app_icon_launcher_system_info_112_112, true, use_status_bar, use_navigation_bar),
-    _info_label(nullptr)
+    _info_label(nullptr),
+    _system_status(nullptr)
 {
 }
 
 SystemInfo::~SystemInfo()
 {
+    if (_system_status) {
+        delete _system_status;
+        _system_status = nullptr;
+    }
 }
 
 bool SystemInfo::run(void)
 {
     ESP_UTILS_LOGD("Run");
+
+    // Create SystemStatus instance for this app
+    _system_status = new (std::nothrow) SystemStatus();
+    if (!_system_status) {
+        ESP_LOGE(ESP_UTILS_LOG_TAG, "Failed to allocate SystemStatus");
+        return false;
+    }
+    
+    // Initialize SystemStatus (reuses the I2C bus already initialized)
+    if (_system_status->init() != ESP_OK) {
+        ESP_LOGW(ESP_UTILS_LOG_TAG, "Failed to initialize SystemStatus - will show placeholder data");
+    }
 
     // Get the active screen
     lv_obj_t *screen = lv_scr_act();
@@ -83,15 +97,15 @@ bool SystemInfo::back(void)
 
 void SystemInfo::updateSystemInfo()
 {
-    if (!_info_label) {
-        return;  // UI not initialized yet
+    if (!_info_label || !_system_status) {
+        return;  // UI or SystemStatus not initialized yet
     }
 
-    // Get PMU data
-    int battery_voltage = pmu_get_battery_voltage();
-    int vbus_voltage = pmu_get_vbus_voltage();
-    int system_voltage = pmu_get_system_voltage();
-    float temperature = pmu_get_temperature();
+    // Get PMU data from SystemStatus
+    int battery_voltage = _system_status->getBatteryVoltage();
+    int vbus_voltage = _system_status->getVbusVoltage();
+    int system_voltage = _system_status->getSystemVoltage();
+    float temperature = _system_status->getTemperature();
 
     // Format the information text
     char info_text[512];
