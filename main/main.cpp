@@ -104,7 +104,10 @@ extern "C" void app_main(void)
         /* Init and install apps from registry */
         std::vector<systems::base::Manager::RegistryAppInfo> inited_apps;
         ESP_UTILS_CHECK_FALSE_EXIT(phone->initAppFromRegistry(inited_apps), "Init app registry failed");
-        ESP_UTILS_CHECK_FALSE_EXIT(phone->installAppFromRegistry(inited_apps), "Install app registry failed");
+        
+        /* Define app order - Robo Cat Ears appears first */
+        std::vector<std::string> app_order = {"ROBO_CAT_EARS", "SYSTEM_INFO"};
+        ESP_UTILS_CHECK_FALSE_EXIT(phone->installAppFromRegistry(inited_apps, &app_order), "Install app registry failed");
 
         /* Create a timer to update the clock */
         lv_timer_create([](lv_timer_t *t) {
