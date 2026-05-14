@@ -912,9 +912,11 @@ void RoboCatEars::updateDeviceList()
             if (app->_scanning) {
                 lv_obj_t *btn = lv_list_add_btn(device_list, LV_SYMBOL_REFRESH, "Scanning for ears...");
                 lv_obj_set_style_text_color(btn, lv_color_hex(0x808080), 0);
+                lv_obj_add_flag(btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
             } else {
                 lv_obj_t *btn = lv_list_add_btn(device_list, LV_SYMBOL_WARNING, "No ears found\nPress Scan to search");
                 lv_obj_set_style_text_color(btn, lv_color_hex(0x808080), 0);
+                lv_obj_add_flag(btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
             }
         } else {
             // Sort by RSSI (strongest first)
@@ -959,6 +961,7 @@ void RoboCatEars::updateDeviceList()
                 lv_obj_set_style_border_width(bar_container, 0, 0);
                 lv_obj_set_style_pad_all(bar_container, 0, 0);
                 lv_obj_clear_flag(bar_container, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_add_flag(bar_container, LV_OBJ_FLAG_GESTURE_BUBBLE);
                 
                 // Bar dimensions
                 const int bar_width = 6;
@@ -975,14 +978,24 @@ void RoboCatEars::updateDeviceList()
                     lv_obj_set_style_border_width(bar, 0, 0);
                     lv_obj_set_style_radius(bar, 1, 0);
                     lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_add_flag(bar, LV_OBJ_FLAG_GESTURE_BUBBLE);
                 }
 
                 // Store device address in user data for click handler
                 std::string *addr = new std::string(device.address);
                 lv_obj_set_user_data(btn, addr);
                 
+                // Allow gestures to bubble up from list items for swipe navigation
+                lv_obj_add_flag(btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                
                 // Add click event handler
                 lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+                    // Ignore click if a gesture (swipe) was detected
+                    lv_dir_t gesture_dir = lv_indev_get_gesture_dir(lv_indev_get_act());
+                    if (gesture_dir != LV_DIR_NONE) {
+                        return; // Swipe detected, don't process as click
+                    }
+                    
                     lv_obj_t *btn = (lv_obj_t *)lv_event_get_target(e);
                     std::string *addr = (std::string *)lv_obj_get_user_data(btn);
                     if (addr) {

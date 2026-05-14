@@ -67,6 +67,12 @@ ControlScreen::ControlScreen(lv_obj_t *parent_screen,
         
         // Add event handler for command button
         lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+            // Ignore click if a gesture (swipe) was detected
+            lv_dir_t gesture_dir = lv_indev_get_gesture_dir(lv_indev_get_act());
+            if (gesture_dir != LV_DIR_NONE) {
+                return; // Swipe detected, don't process as click
+            }
+            
             lv_obj_t *btn = (lv_obj_t*)lv_event_get_current_target(e);
             ControlScreen *screen = (ControlScreen *)lv_obj_get_user_data(btn);
             std::string *cmd = (std::string *)lv_event_get_user_data(e);

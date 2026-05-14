@@ -48,6 +48,9 @@ ScanScreen::ScanScreen(lv_obj_t *parent_screen,
     _device_list = lv_list_create(_container);
     lv_obj_set_size(_device_list, lv_pct(90), lv_pct(50));
     lv_obj_align(_device_list, LV_ALIGN_CENTER, 0, 0);
+    
+    // Allow gestures to bubble up from the list for swipe navigation
+    lv_obj_add_flag(_device_list, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     // Add initial message
     lv_obj_t *btn = lv_list_add_btn(_device_list, LV_SYMBOL_REFRESH, "Scanning for ears...");
@@ -68,6 +71,12 @@ ScanScreen::ScanScreen(lv_obj_t *parent_screen,
 
     // Add event handler for scan button
     lv_obj_add_event_cb(_scan_btn, [](lv_event_t *e) {
+        // Ignore click if a gesture (swipe) was detected
+        lv_dir_t gesture_dir = lv_indev_get_gesture_dir(lv_indev_get_act());
+        if (gesture_dir != LV_DIR_NONE) {
+            return; // Swipe detected, don't process as click
+        }
+        
         ScanScreen *screen = (ScanScreen *)lv_event_get_user_data(e);
         if (screen && screen->_on_scan_clicked) {
             screen->_on_scan_clicked();
@@ -86,6 +95,12 @@ ScanScreen::ScanScreen(lv_obj_t *parent_screen,
 
     // Add event handler for disconnect button
     lv_obj_add_event_cb(_disconnect_btn, [](lv_event_t *e) {
+        // Ignore click if a gesture (swipe) was detected
+        lv_dir_t gesture_dir = lv_indev_get_gesture_dir(lv_indev_get_act());
+        if (gesture_dir != LV_DIR_NONE) {
+            return; // Swipe detected, don't process as click
+        }
+        
         ScanScreen *screen = (ScanScreen *)lv_event_get_user_data(e);
         if (screen && screen->_on_disconnect_clicked) {
             screen->_on_disconnect_clicked();
