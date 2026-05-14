@@ -1,0 +1,268 @@
+/*
+ * Description: Glow screen for Robo cat ears controller app
+ * Author: Jeff Underdown (junderdo)
+ * Copyright (C) 2026 Milk Lab Creations
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+#include "glow_screen.hpp"
+#include <cstdlib>
+#include <ctime>
+
+#ifdef ESP_UTILS_LOG_TAG
+#   undef ESP_UTILS_LOG_TAG
+#endif
+#define ESP_UTILS_LOG_TAG "BS:GlowScreen"
+#include "esp_lib_utils.h"
+
+namespace esp_brookesia::apps::screens {
+
+GlowScreen::GlowScreen(lv_obj_t *parent_screen)
+    : _container(nullptr),
+      _status_label(nullptr),
+      _add_color_btn(nullptr),
+      _color_list_container(nullptr),
+      _trash_icon(nullptr)
+{
+    ESP_UTILS_LOGD("Creating glow screen");
+
+    // Create a container for the glow screen
+    _container = lv_obj_create(parent_screen);
+    lv_obj_set_size(_container, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_opa(_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(_container, 0, 0);
+    lv_obj_set_style_pad_all(_container, 0, 0);
+
+    // Allow gestures to bubble up to parent for swipe navigation
+    lv_obj_add_flag(_container, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+    // Create a connection status label at the top
+    _status_label = lv_label_create(_container);
+    lv_label_set_text(_status_label, "Not connected");
+    lv_obj_set_style_text_color(_status_label, lv_color_hex(0x808080), 0);
+    lv_obj_set_style_text_font(_status_label, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_align(_status_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(_status_label, LV_ALIGN_TOP_MID, 0, 15);
+
+    // Create "Add Color" button
+    _add_color_btn = lv_btn_create(_container);
+    lv_obj_set_size(_add_color_btn, 250, 60);
+    lv_obj_align(_add_color_btn, LV_ALIGN_TOP_MID, 0, 70);
+
+    lv_obj_t *add_label = lv_label_create(_add_color_btn);
+    lv_label_set_text(add_label, LV_SYMBOL_PLUS " Add Color");
+    lv_obj_set_style_text_font(add_label, &lv_font_montserrat_24, 0);
+    lv_obj_center(add_label);
+
+    // Add event handler for add color button
+    lv_obj_add_event_cb(_add_color_btn, [](lv_event_t *e) {
+        // Ignore click if a gesture (swipe) was detected
+        lv_dir_t gesture_dir = lv_indev_get_gesture_dir(lv_indev_get_act());
+        if (gesture_dir != LV_DIR_NONE) {
+            return; // Swipe detected, don't process as click
+        }
+
+        GlowScreen *screen = (GlowScreen *)lv_event_get_user_data(e);
+        if (screen) {
+            screen->addRandomColor();
+        }
+    }, LV_EVENT_CLICKED, this);
+
+    // Create a scrollable container for the color list
+    _color_list_container = lv_obj_create(_container);
+    lv_obj_set_size(_color_list_container, lv_pct(90), 200);
+    lv_obj_align(_color_list_container, LV_ALIGN_TOP_MID, 0, 150);
+    lv_obj_set_style_bg_opa(_color_list_container, LV_OPA_10, 0);
+    lv_obj_set_style_border_width(_color_list_container, 1, 0);
+    lv_obj_set_style_border_color(_color_list_container, lv_color_hex(0x404040), 0);
+    lv_obj_set_flex_flow(_color_list_container, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(_color_list_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_all(_color_list_container, 10, 0);
+    lv_obj_set_style_pad_gap(_color_list_container, 10, 0);
+
+    // Create trash icon at bottom (initially hidden)
+    _trash_icon = lv_obj_create(_container);
+    lv_obj_set_size(_trash_icon, 80, 80);
+    lv_obj_align(_trash_icon, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_set_style_bg_color(_trash_icon, lv_color_hex(0xFF0000), 0);
+    lv_obj_set_style_bg_opa(_trash_icon, LV_OPA_70, 0);
+    lv_obj_set_style_border_width(_trash_icon, 2, 0);
+    lv_obj_set_style_border_color(_trash_icon, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_radius(_trash_icon, 10, 0);
+    lv_obj_add_flag(_trash_icon, LV_OBJ_FLAG_HIDDEN); // Initially hidden
+    
+    // Add trash icon label
+    lv_obj_t *trash_label = lv_label_create(_trash_icon);
+    lv_label_set_text(trash_label, LV_SYMBOL_TRASH);
+    lv_obj_set_style_text_font(trash_label, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(trash_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(trash_label);
+
+    // Seed random number generator
+    srand(time(nullptr));
+
+    ESP_UTILS_LOGD("Glow screen created successfully");
+}
+
+GlowScreen::~GlowScreen()
+{
+    // LVGL objects are automatically cleaned up when parent is deleted
+}
+
+void GlowScreen::addRandomColor()
+{
+    uint32_t color = generateRandomColor();
+    _colors.push_back(color);
+    ESP_UTILS_LOGI("Added random color: 0x%06X", color);
+    updateColorList();
+}
+
+void GlowScreen::removeColor(int index)
+{
+    if (index >= 0 && index < _colors.size()) {
+        ESP_UTILS_LOGI("Removing color at index %d: 0x%06X", index, _colors[index]);
+        _colors.erase(_colors.begin() + index);
+        updateColorList();
+    }
+}
+
+void GlowScreen::updateColorList()
+{
+    // Free allocated memory for indices before clearing
+    uint32_t child_count = lv_obj_get_child_cnt(_color_list_container);
+    for (uint32_t i = 0; i < child_count; i++) {
+        lv_obj_t *child = lv_obj_get_child(_color_list_container, i);
+        int *index_ptr = (int *)lv_obj_get_user_data(child);
+        if (index_ptr) {
+            delete index_ptr;
+            lv_obj_set_user_data(child, nullptr);
+        }
+    }
+    
+    // Clear existing color squares
+    lv_obj_clean(_color_list_container);
+
+    // Create a color square for each color in the list
+    for (size_t i = 0; i < _colors.size(); i++) {
+        uint32_t color = _colors[i];
+
+        // Create color square
+        lv_obj_t *color_item = lv_obj_create(_color_list_container);
+        lv_obj_set_size(color_item, 80, 80);
+        lv_obj_set_style_bg_color(color_item, lv_color_hex(color), 0);
+        lv_obj_set_style_bg_opa(color_item, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(color_item, 2, 0);
+        lv_obj_set_style_border_color(color_item, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_radius(color_item, 8, 0);
+        lv_obj_clear_flag(color_item, LV_OBJ_FLAG_SCROLLABLE);
+
+        // Make the color square draggable
+        lv_obj_add_flag(color_item, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(color_item, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+        // Store the index in user data
+        int *index_ptr = new int(i);
+        lv_obj_set_user_data(color_item, index_ptr);
+
+        // Add event handler for press (start of drag)
+        lv_obj_add_event_cb(color_item, [](lv_event_t *e) {
+            lv_obj_t *obj = (lv_obj_t *)lv_event_get_target(e);
+            
+            // Get the screen from the parent hierarchy
+            lv_obj_t *color_list = lv_obj_get_parent(obj);
+            GlowScreen *screen = (GlowScreen *)lv_obj_get_user_data(color_list);
+            
+            if (screen && screen->_trash_icon) {
+                // Show trash icon when starting to drag
+                lv_obj_clear_flag(screen->_trash_icon, LV_OBJ_FLAG_HIDDEN);
+            }
+            
+            // Make the object float above layout and bring to foreground
+            lv_obj_add_flag(obj, LV_OBJ_FLAG_FLOATING);
+            lv_obj_move_foreground(obj);
+        }, LV_EVENT_PRESSED, nullptr);
+
+        // Add event handler for pressing (dragging movement)
+        lv_obj_add_event_cb(color_item, [](lv_event_t *e) {
+            lv_obj_t *obj = (lv_obj_t *)lv_event_get_target(e);
+            lv_indev_t *indev = lv_indev_get_act();
+            
+            if (indev) {
+                lv_point_t point;
+                lv_indev_get_point(indev, &point);
+                
+                // Get parent coordinates to convert to relative position
+                lv_obj_t *parent = lv_obj_get_parent(obj);
+                lv_area_t parent_coords;
+                lv_obj_get_coords(parent, &parent_coords);
+                
+                // Convert screen coordinates to parent-relative coordinates
+                lv_coord_t rel_x = point.x - parent_coords.x1;
+                lv_coord_t rel_y = point.y - parent_coords.y1;
+                
+                // Center the object under the pointer
+                lv_obj_set_pos(obj, rel_x - lv_obj_get_width(obj) / 2,
+                                   rel_y - lv_obj_get_height(obj) / 2);
+                
+                // Keep object on top of everything
+                lv_obj_move_foreground(obj);
+            }
+        }, LV_EVENT_PRESSING, nullptr);
+
+        // Add event handler for drag end
+        lv_obj_add_event_cb(color_item, [](lv_event_t *e) {
+            lv_obj_t *obj = (lv_obj_t *)lv_event_get_target(e);
+            
+            // Get the screen from the parent hierarchy
+            lv_obj_t *color_list = lv_obj_get_parent(obj);
+            GlowScreen *screen = (GlowScreen *)lv_obj_get_user_data(color_list);
+            
+            if (screen && screen->_trash_icon) {
+                // Check if the color square was dropped on the trash icon
+                lv_area_t obj_coords;
+                lv_obj_get_coords(obj, &obj_coords);
+                
+                lv_area_t trash_coords;
+                lv_obj_get_coords(screen->_trash_icon, &trash_coords);
+                
+                // Check if the areas overlap
+                bool overlaps = !(obj_coords.x2 < trash_coords.x1 ||
+                                 obj_coords.x1 > trash_coords.x2 ||
+                                 obj_coords.y2 < trash_coords.y1 ||
+                                 obj_coords.y1 > trash_coords.y2);
+                
+                if (overlaps) {
+                    // Dropped on trash - delete this color
+                    int *index_ptr = (int *)lv_obj_get_user_data(obj);
+                    if (index_ptr) {
+                        ESP_UTILS_LOGI("Color dropped on trash, deleting index %d", *index_ptr);
+                        screen->removeColor(*index_ptr);
+                        // Memory will be cleaned up in updateColorList
+                    }
+                } else {
+                    // Not dropped on trash - animate back to original position
+                    // For simplicity, just refresh the list
+                    screen->updateColorList();
+                }
+                
+                // Hide trash icon
+                lv_obj_add_flag(screen->_trash_icon, LV_OBJ_FLAG_HIDDEN);
+            }
+        }, LV_EVENT_RELEASED, nullptr);
+    }
+
+    // Store screen pointer in color list container for callback access
+    lv_obj_set_user_data(_color_list_container, this);
+}
+
+uint32_t GlowScreen::generateRandomColor()
+{
+    // Generate random RGB values
+    uint8_t r = rand() % 256;
+    uint8_t g = rand() % 256;
+    uint8_t b = rand() % 256;
+    
+    // Combine into 24-bit color
+    return (r << 16) | (g << 8) | b;
+}
+
+} // namespace esp_brookesia::apps::screens
