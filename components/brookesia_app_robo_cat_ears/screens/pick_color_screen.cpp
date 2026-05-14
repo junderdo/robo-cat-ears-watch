@@ -57,7 +57,7 @@ PickColorScreen::PickColorScreen(lv_obj_t *parent)
     lv_obj_set_style_text_color(red_label, lv_color_hex(0xFF0000), 0);
     
     _red_slider = lv_slider_create(_panel);
-    lv_obj_set_size(_red_slider, lv_pct(65), 30);
+    lv_obj_set_size(_red_slider, lv_pct(70), 32);
     lv_obj_align(_red_slider, LV_ALIGN_TOP_LEFT, 50, 110);
     lv_slider_set_range(_red_slider, 0, 255);
     lv_slider_set_value(_red_slider, 51, LV_ANIM_OFF);
@@ -76,7 +76,7 @@ PickColorScreen::PickColorScreen(lv_obj_t *parent)
     lv_obj_set_style_text_color(green_label, lv_color_hex(0x00FF00), 0);
     
     _green_slider = lv_slider_create(_panel);
-    lv_obj_set_size(_green_slider, lv_pct(65), 30);
+    lv_obj_set_size(_green_slider, lv_pct(70), 32);
     lv_obj_align(_green_slider, LV_ALIGN_TOP_LEFT, 50, 170);
     lv_slider_set_range(_green_slider, 0, 255);
     lv_slider_set_value(_green_slider, 128, LV_ANIM_OFF);
@@ -95,7 +95,7 @@ PickColorScreen::PickColorScreen(lv_obj_t *parent)
     lv_obj_set_style_text_color(blue_label, lv_color_hex(0x0000FF), 0);
     
     _blue_slider = lv_slider_create(_panel);
-    lv_obj_set_size(_blue_slider, lv_pct(65), 30);
+    lv_obj_set_size(_blue_slider, lv_pct(70), 32);
     lv_obj_align(_blue_slider, LV_ALIGN_TOP_LEFT, 50, 230);
     lv_slider_set_range(_blue_slider, 0, 255);
     lv_slider_set_value(_blue_slider, 179, LV_ANIM_OFF);

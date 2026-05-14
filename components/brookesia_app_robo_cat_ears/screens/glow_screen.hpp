@@ -100,6 +100,8 @@ private:
     std::unique_ptr<ModesScreen> _modes_screen;
     std::string _current_mode;
     int _current_speed;
+    int _last_reorder_from_index;  // Track last reorder indices to prevent rapid re-triggering
+    int _last_reorder_to_index;
 };
 
 } // namespace esp_brookesia::apps::screens

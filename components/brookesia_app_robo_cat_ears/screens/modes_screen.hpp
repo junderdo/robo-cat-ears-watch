@@ -51,7 +51,7 @@ private:
     lv_obj_t *_panel;
     lv_obj_t *_modes_list;
     lv_obj_t *_speed_slider;
-    lv_obj_t *_close_btn;
+    lv_obj_t *_cancel_btn;
     lv_obj_t *_ok_btn;
     lv_obj_t *_mode_buttons[5];  // Track mode buttons for state updates
     lv_obj_t *_selected_mode_btn;

@@ -24,7 +24,9 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
       _modes_btn_label(nullptr),
       _on_add_color_clicked(nullptr),
       _current_mode("Solid"),
-      _current_speed(50)
+      _current_speed(50),
+      _last_reorder_from_index(-1),
+      _last_reorder_to_index(-1)
 {
     ESP_UTILS_LOGD("Creating glow screen");
 
@@ -294,6 +296,10 @@ void GlowScreen::updateColorList()
                     lv_obj_clear_flag(screen->_trash_icon, LV_OBJ_FLAG_HIDDEN);
                 }
                 
+                // Reset reorder tracking for new drag
+                screen->_last_reorder_from_index = -1;
+                screen->_last_reorder_to_index = -1;
+                
                 // Darken the original square to show it's being dragged
                 lv_obj_set_style_opa(obj, LV_OPA_30, 0);
                 
@@ -413,9 +419,19 @@ void GlowScreen::updateColorList()
                                                  clone_coords.y1 > other_coords.y2);
                                 
                                 if (overlaps && dragged_index != other_index) {
-                                    // Hovering over a different square - trigger reorder
-                                    screen->reorderColor(dragged_index, other_index);
-                                    break; // Only process one overlap at a time
+                                    // Check if this is the same pair we just reordered (in either direction)
+                                    bool is_same_pair = (dragged_index == screen->_last_reorder_from_index && 
+                                                         other_index == screen->_last_reorder_to_index) ||
+                                                        (dragged_index == screen->_last_reorder_to_index && 
+                                                         other_index == screen->_last_reorder_from_index);
+                                    
+                                    if (!is_same_pair) {
+                                        // Hovering over a different square - trigger reorder
+                                        screen->reorderColor(dragged_index, other_index);
+                                        screen->_last_reorder_from_index = dragged_index;
+                                        screen->_last_reorder_to_index = other_index;
+                                        break; // Only process one overlap at a time
+                                    }
                                 }
                             }
                         }
@@ -498,6 +514,10 @@ void GlowScreen::updateColorList()
                     
                     // Hide trash icon
                     lv_obj_add_flag(screen->_trash_icon, LV_OBJ_FLAG_HIDDEN);
+                    
+                    // Reset reorder tracking
+                    screen->_last_reorder_from_index = -1;
+                    screen->_last_reorder_to_index = -1;
                 }
             }
         }, LV_EVENT_RELEASED, nullptr);
