@@ -11,6 +11,8 @@
 #include "systems/phone/esp_brookesia_phone_app.hpp"
 #include "esp_gap_ble_api.h"
 #include "esp_gattc_api.h"
+#include "screens/scan_screen.hpp"
+#include "screens/control_screen.hpp"
 
 namespace esp_brookesia::apps {
 
@@ -154,16 +156,6 @@ private:
     void handleGapEvent(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
 
     /**
-     * @brief Create the scan/connection screen
-     */
-    void createScanScreen();
-
-    /**
-     * @brief Create the control screen with command buttons
-     */
-    void createControlScreen();
-
-    /**
      * @brief Switch to a specific screen
      *
      * @param screen_index 0 for scan screen, 1 for control screen
@@ -198,13 +190,8 @@ private:
     void attemptAutoReconnect();
 
     static RoboCatEars *_instance;
-    lv_obj_t *_scan_screen;
-    lv_obj_t *_control_screen;
-    lv_obj_t *_device_list;
-    lv_obj_t *_status_label;
-    lv_obj_t *_control_status_label;
-    lv_obj_t *_scan_btn;
-    lv_obj_t *_disconnect_btn;
+    screens::ScanScreen *_scan_screen;
+    screens::ControlScreen *_control_screen;
     int _current_screen;
     std::vector<BleDevice> _discovered_devices;
     bool _ble_initialized;

@@ -49,11 +49,6 @@ RoboCatEars::RoboCatEars(bool use_status_bar, bool use_navigation_bar):
     App(APP_NAME, &esp_brookesia_app_icon_launcher_robo_cat_ears_112_112, true, use_status_bar, use_navigation_bar),
     _scan_screen(nullptr),
     _control_screen(nullptr),
-    _device_list(nullptr),
-    _status_label(nullptr),
-    _control_status_label(nullptr),
-    _scan_btn(nullptr),
-    _disconnect_btn(nullptr),
     _current_screen(0),
     _ble_initialized(false),
     _scanning(false),
@@ -75,6 +70,16 @@ RoboCatEars::RoboCatEars(bool use_status_bar, bool use_navigation_bar):
 RoboCatEars::~RoboCatEars()
 {
     deinitBLE();
+    
+    // Clean up screen objects
+    if (_scan_screen) {
+        delete _scan_screen;
+        _scan_screen = nullptr;
+    }
+    if (_control_screen) {
+        delete _control_screen;
+        _control_screen = nullptr;
+    }
 }
 
 bool RoboCatEars::init()
@@ -142,9 +147,34 @@ bool RoboCatEars::run(void)
     // Set black background
     lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
 
-    // Create both screen containers
-    createScanScreen();
-    createControlScreen();
+    // Create both screen objects with callbacks
+    _scan_screen = new screens::ScanScreen(
+        screen,
+        // on_scan_clicked
+        [this]() {
+            ESP_UTILS_LOGI("Scan button clicked");
+            startScan();
+        },
+        // on_disconnect_clicked
+        [this]() {
+            ESP_UTILS_LOGI("Disconnect button clicked");
+            disconnect();
+        },
+        // on_device_clicked
+        [this](const char* address) {
+            ESP_UTILS_LOGI("Device clicked: %s", address);
+            connectToDevice(address);
+        }
+    );
+
+    _control_screen = new screens::ControlScreen(
+        screen,
+        // on_command_clicked
+        [this](const std::string& command) {
+            ESP_UTILS_LOGI("Command button clicked: %s", command.c_str());
+            writeCharacteristic(command);
+        }
+    );
 
     // Add swipe gesture detection to the main screen
     lv_obj_add_event_cb(screen, [](lv_event_t *e) {
@@ -670,7 +700,7 @@ void RoboCatEars::disconnect()
 
 void RoboCatEars::updateConnectionStatus()
 {
-    if (!_status_label || !_scan_btn || !_disconnect_btn) {
+    if (!_scan_screen || !_control_screen) {
         ESP_UTILS_LOGW("updateConnectionStatus called but UI not initialized");
         return;  // UI not initialized yet
     }
@@ -684,33 +714,29 @@ void RoboCatEars::updateConnectionStatus()
         if (app->_connected) {
             // Connected state
             std::string status_text = "Connected\n" + app->_connected_device_name;
-            lv_label_set_text(app->_status_label, status_text.c_str());
-            lv_obj_set_style_text_color(app->_status_label, lv_color_hex(0x00FF00), 0);
+            lv_label_set_text(app->_scan_screen->getStatusLabel(), status_text.c_str());
+            lv_obj_set_style_text_color(app->_scan_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
             // Update control screen status label too
-            if (app->_control_status_label) {
-                lv_label_set_text(app->_control_status_label, status_text.c_str());
-                lv_obj_set_style_text_color(app->_control_status_label, lv_color_hex(0x00FF00), 0);
-            }
+            lv_label_set_text(app->_control_screen->getStatusLabel(), status_text.c_str());
+            lv_obj_set_style_text_color(app->_control_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
             // Show disconnect button, hide scan button
-            lv_obj_clear_flag(app->_disconnect_btn, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(app->_scan_btn, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(app->_scan_screen->getDisconnectButton(), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(app->_scan_screen->getScanButton(), LV_OBJ_FLAG_HIDDEN);
             ESP_UTILS_LOGD("UI updated: showing connected status and disconnect button");
         } else {
             // Disconnected state
-            lv_label_set_text(app->_status_label, "Not connected");
-            lv_obj_set_style_text_color(app->_status_label, lv_color_hex(0x808080), 0);
+            lv_label_set_text(app->_scan_screen->getStatusLabel(), "Not connected");
+            lv_obj_set_style_text_color(app->_scan_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
             
             // Update control screen status label too
-            if (app->_control_status_label) {
-                lv_label_set_text(app->_control_status_label, "Not connected");
-                lv_obj_set_style_text_color(app->_control_status_label, lv_color_hex(0x808080), 0);
-            }
+            lv_label_set_text(app->_control_screen->getStatusLabel(), "Not connected");
+            lv_obj_set_style_text_color(app->_control_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
             
             // Show scan button, hide disconnect button
-            lv_obj_clear_flag(app->_scan_btn, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(app->_disconnect_btn, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(app->_scan_screen->getScanButton(), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(app->_scan_screen->getDisconnectButton(), LV_OBJ_FLAG_HIDDEN);
             ESP_UTILS_LOGD("UI updated: showing disconnected status and scan button");
         }
     }, this);
@@ -851,7 +877,7 @@ void RoboCatEars::addDevice(const std::string &name, const std::string &address,
 
 void RoboCatEars::updateDeviceList()
 {
-    if (!_device_list) {
+    if (!_scan_screen) {
         return;
     }
 
@@ -859,14 +885,19 @@ void RoboCatEars::updateDeviceList()
     // Use LVGL's async call mechanism to safely update UI from another task
     lv_async_call([](void *user_data) {
         RoboCatEars *app = (RoboCatEars *)user_data;
-        if (!app || !app->_device_list) {
+        if (!app || !app->_scan_screen) {
+            return;
+        }
+
+        lv_obj_t *device_list = app->_scan_screen->getDeviceList();
+        if (!device_list) {
             return;
         }
 
         // Free allocated memory for user_data before clearing
-        uint32_t child_count = lv_obj_get_child_cnt(app->_device_list);
+        uint32_t child_count = lv_obj_get_child_cnt(device_list);
         for (uint32_t i = 0; i < child_count; i++) {
-            lv_obj_t *child = lv_obj_get_child(app->_device_list, i);
+            lv_obj_t *child = lv_obj_get_child(device_list, i);
             std::string *addr = (std::string *)lv_obj_get_user_data(child);
             if (addr) {
                 delete addr;
@@ -875,14 +906,14 @@ void RoboCatEars::updateDeviceList()
         }
 
         // Clear the list
-        lv_obj_clean(app->_device_list);
+        lv_obj_clean(device_list);
 
         if (app->_discovered_devices.empty()) {
             if (app->_scanning) {
-                lv_obj_t *btn = lv_list_add_btn(app->_device_list, LV_SYMBOL_REFRESH, "Scanning for ears...");
+                lv_obj_t *btn = lv_list_add_btn(device_list, LV_SYMBOL_REFRESH, "Scanning for ears...");
                 lv_obj_set_style_text_color(btn, lv_color_hex(0x808080), 0);
             } else {
-                lv_obj_t *btn = lv_list_add_btn(app->_device_list, LV_SYMBOL_WARNING, "No ears found\nPress Scan to search");
+                lv_obj_t *btn = lv_list_add_btn(device_list, LV_SYMBOL_WARNING, "No ears found\nPress Scan to search");
                 lv_obj_set_style_text_color(btn, lv_color_hex(0x808080), 0);
             }
         } else {
@@ -897,7 +928,7 @@ void RoboCatEars::updateDeviceList()
                 snprintf(label, sizeof(label), "%s\n%s (RSSI: %d)",
                         device.name.c_str(), device.address.c_str(), device.rssi);
                 
-                lv_obj_t *btn = lv_list_add_btn(app->_device_list, LV_SYMBOL_BLUETOOTH, label);
+                lv_obj_t *btn = lv_list_add_btn(device_list, LV_SYMBOL_BLUETOOTH, label);
                 
                 // Make list items larger
                 lv_obj_set_height(btn, 80);
@@ -985,154 +1016,24 @@ void RoboCatEars::updateDeviceList()
     }, this);
 }
 
-void RoboCatEars::createScanScreen()
-{
-    ESP_UTILS_LOGD("Creating scan screen");
-    
-    lv_obj_t *screen = lv_scr_act();
-    
-    // Create a container for the scan screen
-    _scan_screen = lv_obj_create(screen);
-    lv_obj_set_size(_scan_screen, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_opa(_scan_screen, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(_scan_screen, 0, 0);
-    lv_obj_set_style_pad_all(_scan_screen, 0, 0);
-    
-    // Create a connection status label (larger, no title)
-    _status_label = lv_label_create(_scan_screen);
-    lv_label_set_text(_status_label, "Not connected");
-    lv_obj_set_style_text_color(_status_label, lv_color_hex(0x808080), 0);
-    lv_obj_set_style_text_font(_status_label, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_align(_status_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(_status_label, LV_ALIGN_TOP_MID, 0, 15);
-
-    // Create a list to display BLE devices
-    _device_list = lv_list_create(_scan_screen);
-    lv_obj_set_size(_device_list, lv_pct(90), lv_pct(50));
-    lv_obj_align(_device_list, LV_ALIGN_CENTER, 0, 0);
-
-    // Add initial message
-    lv_obj_t *btn = lv_list_add_btn(_device_list, LV_SYMBOL_REFRESH, "Scanning for ears...");
-    lv_obj_set_style_text_color(btn, lv_color_hex(0x808080), 0);
-
-    // Create a scan button (centered at bottom, shown when not connected)
-    _scan_btn = lv_btn_create(_scan_screen);
-    lv_obj_set_size(_scan_btn, 280, 80);
-    lv_obj_align(_scan_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
-    
-    lv_obj_t *scan_label = lv_label_create(_scan_btn);
-    lv_label_set_text(scan_label, LV_SYMBOL_REFRESH " Scan for Ears");
-    lv_obj_set_style_text_font(scan_label, &lv_font_montserrat_24, 0);
-    lv_obj_center(scan_label);
-
-    // Add event handler for scan button
-    lv_obj_add_event_cb(_scan_btn, [](lv_event_t *e) {
-        RoboCatEars *app = RoboCatEars::requestInstance();
-        if (app) {
-            ESP_UTILS_LOGD("Scan button pressed - starting new scan");
-            app->startScan();
-        }
-    }, LV_EVENT_CLICKED, nullptr);
-
-    // Create a disconnect button (same position as scan, shown when connected)
-    _disconnect_btn = lv_btn_create(_scan_screen);
-    lv_obj_set_size(_disconnect_btn, 280, 80);
-    lv_obj_align(_disconnect_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
-    
-    lv_obj_t *disconnect_label = lv_label_create(_disconnect_btn);
-    lv_label_set_text(disconnect_label, LV_SYMBOL_CLOSE " Disconnect");
-    lv_obj_set_style_text_font(disconnect_label, &lv_font_montserrat_24, 0);
-    lv_obj_center(disconnect_label);
-
-    // Add event handler for disconnect button
-    lv_obj_add_event_cb(_disconnect_btn, [](lv_event_t *e) {
-        RoboCatEars *app = RoboCatEars::requestInstance();
-        if (app) {
-            ESP_UTILS_LOGI("Disconnect button pressed");
-            app->disconnect();
-        }
-    }, LV_EVENT_CLICKED, nullptr);
-
-    // Initially show scan button, hide disconnect button
-    lv_obj_add_flag(_disconnect_btn, LV_OBJ_FLAG_HIDDEN);
-}
-
-void RoboCatEars::createControlScreen()
-{
-    ESP_UTILS_LOGD("Creating control screen");
-    
-    lv_obj_t *screen = lv_scr_act();
-    
-    // Create a container for the control screen
-    _control_screen = lv_obj_create(screen);
-    lv_obj_set_size(_control_screen, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_opa(_control_screen, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(_control_screen, 0, 0);
-    lv_obj_set_style_pad_all(_control_screen, 0, 0);
-    
-    // Create a connection status label at the top (same as scan screen)
-    _control_status_label = lv_label_create(_control_screen);
-    lv_label_set_text(_control_status_label, "Not connected");
-    lv_obj_set_style_text_color(_control_status_label, lv_color_hex(0x808080), 0);
-    lv_obj_set_style_text_font(_control_status_label, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_align(_control_status_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(_control_status_label, LV_ALIGN_TOP_MID, 0, 15);
-    
-    // Calculate button size to fill the screen in a 2x2 grid
-    int screen_width = lv_obj_get_width(screen);
-    int screen_height = lv_obj_get_height(screen);
-    int btn_width = (screen_width - 30) / 2;  // 30 = padding + gap
-    int btn_height = (screen_height - 120) / 2;  // 120 = top padding for status + gaps
-    
-    // Create 4 buttons in a 2x2 grid
-    const char *button_labels[] = {"Happy :)", "Sad :(", "Wiggle", "Radar"};
-    const char *button_commands[] = {"DA1", "DA2", "DA3", "DA4"};
-    
-    for (int i = 0; i < 4; i++) {
-        int row = i / 2;
-        int col = i % 2;
-        
-        lv_obj_t *btn = lv_btn_create(_control_screen);
-        lv_obj_set_size(btn, btn_width, btn_height);
-        lv_obj_set_pos(btn, 10 + col * (btn_width + 10), 80 + row * (btn_height + 10));
-        
-        lv_obj_t *label = lv_label_create(btn);
-        lv_label_set_text(label, button_labels[i]);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
-        lv_obj_center(label);
-        
-        // Store command string as user data
-        std::string *cmd = new std::string(button_commands[i]);
-        lv_obj_set_user_data(btn, cmd);
-        
-        // Add click handler
-        lv_obj_add_event_cb(btn, [](lv_event_t *e) {
-            lv_obj_t *btn = (lv_obj_t *)lv_event_get_target(e);
-            std::string *cmd = (std::string *)lv_obj_get_user_data(btn);
-            if (cmd) {
-                RoboCatEars *app = RoboCatEars::requestInstance();
-                if (app) {
-                    ESP_UTILS_LOGI("Control button pressed, sending: %s", cmd->c_str());
-                    app->writeCharacteristic(*cmd);
-                }
-            }
-        }, LV_EVENT_CLICKED, nullptr);
-    }
-}
-
 void RoboCatEars::switchToScreen(int screen_index)
 {
     ESP_UTILS_LOGD("Switching to screen %d", screen_index);
     
+    if (!_scan_screen || !_control_screen) {
+        ESP_UTILS_LOGE("Screens not initialized");
+        return;
+    }
+    
     if (screen_index == 0) {
         // Show scan screen, hide control screen
-        lv_obj_clear_flag(_scan_screen, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(_control_screen, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(_scan_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(_control_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
         _current_screen = 0;
     } else if (screen_index == 1) {
         // Show control screen, hide scan screen
-        lv_obj_add_flag(_scan_screen, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(_control_screen, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(_scan_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(_control_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
         _current_screen = 1;
         
         // Update the control screen status label to match current connection state
