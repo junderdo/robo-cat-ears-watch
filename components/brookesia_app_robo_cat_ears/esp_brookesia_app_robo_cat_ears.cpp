@@ -242,6 +242,12 @@ bool RoboCatEars::run(void)
         // Connection status callback
         _bluetooth_service->setConnectionStatusCallback([this](bool connected, const std::string &device_name, const std::string &address) {
             updateConnectionStatus();
+            
+            // Auto-switch to animate screen on successful connection
+            if (connected) {
+                ESP_UTILS_LOGI("Connection successful, switching to animate screen");
+                switchToScreen(1);
+            }
         });
         
         // Scanning status callback

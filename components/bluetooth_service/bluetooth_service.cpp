@@ -430,22 +430,20 @@ bool BluetoothService::connectToDevice(const std::string &address)
     esp_ble_addr_type_t addr_type = BLE_ADDR_TYPE_PUBLIC;  // Default
     std::string device_name = "Unknown";
     
-    // Check if this is a reconnection to the last known device
-    if (address == _last_connected_address && !_last_connected_name.empty()) {
+    // First, try to find the device in the discovered list (most up-to-date info)
+    auto it = std::find_if(_discovered_devices.begin(), _discovered_devices.end(),
+                          [&address](const BleDevice &dev) { return dev.address == address; });
+    if (it != _discovered_devices.end()) {
+        addr_type = it->address_type;
+        device_name = it->name;
+        ESP_LOGI(TAG, "Found device in discovered list: %s (%s)", device_name.c_str(), address.c_str());
+    } else if (address == _last_connected_address && !_last_connected_name.empty()) {
+        // Fall back to saved device info if not in discovered list (e.g., auto-reconnect)
         addr_type = _last_connected_address_type;
         device_name = _last_connected_name;
-        ESP_LOGI(TAG, "Reconnecting to saved device: %s (%s)", device_name.c_str(), address.c_str());
+        ESP_LOGI(TAG, "Using saved device info for reconnection: %s (%s)", device_name.c_str(), address.c_str());
     } else {
-        // Look for device in discovered list
-        auto it = std::find_if(_discovered_devices.begin(), _discovered_devices.end(),
-                              [&address](const BleDevice &dev) { return dev.address == address; });
-        if (it != _discovered_devices.end()) {
-            addr_type = it->address_type;
-            device_name = it->name;
-            ESP_LOGI(TAG, "Found device in list, using address type %d for device %s", addr_type, address.c_str());
-        } else {
-            ESP_LOGW(TAG, "Device not in discovered list, using default address type PUBLIC");
-        }
+        ESP_LOGW(TAG, "Device not in discovered list and no saved info available");
     }
 
     // Store for later saving to NVS
