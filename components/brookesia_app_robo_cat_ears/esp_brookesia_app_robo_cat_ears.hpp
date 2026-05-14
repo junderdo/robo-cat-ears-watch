@@ -14,6 +14,7 @@
 #include "screens/scan_screen.hpp"
 #include "screens/animate_screen.hpp"
 #include "screens/glow_screen.hpp"
+#include "screens/pick_color_screen.hpp"
 
 namespace esp_brookesia::apps {
 
@@ -194,6 +195,7 @@ private:
     screens::ScanScreen *_scan_screen;
     screens::AnimateScreen *_animate_screen;
     screens::GlowScreen *_glow_screen;
+    screens::PickColorScreen *_pick_color_screen;
     int _current_screen;
     std::vector<BleDevice> _discovered_devices;
     bool _ble_initialized;
@@ -212,6 +214,9 @@ private:
     esp_ble_addr_type_t _last_connected_address_type;
     std::string _last_connected_name;
     bool _auto_reconnect_attempted;
+    
+    // Modal state tracking
+    bool _modal_is_open;
 };
 
 } // namespace esp_brookesia::apps

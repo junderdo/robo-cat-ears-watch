@@ -50,6 +50,7 @@ RoboCatEars::RoboCatEars(bool use_status_bar, bool use_navigation_bar):
     _scan_screen(nullptr),
     _animate_screen(nullptr),
     _glow_screen(nullptr),
+    _pick_color_screen(nullptr),
     _current_screen(0),
     _ble_initialized(false),
     _scanning(false),
@@ -64,7 +65,8 @@ RoboCatEars::RoboCatEars(bool use_status_bar, bool use_navigation_bar):
     _last_connected_address(""),
     _last_connected_address_type(BLE_ADDR_TYPE_PUBLIC),
     _last_connected_name(""),
-    _auto_reconnect_attempted(false)
+    _auto_reconnect_attempted(false),
+    _modal_is_open(false)
 {
 }
 
@@ -84,6 +86,10 @@ RoboCatEars::~RoboCatEars()
     if (_glow_screen) {
         delete _glow_screen;
         _glow_screen = nullptr;
+    }
+    if (_pick_color_screen) {
+        delete _pick_color_screen;
+        _pick_color_screen = nullptr;
     }
 }
 
@@ -183,10 +189,41 @@ bool RoboCatEars::run(void)
 
     _glow_screen = new screens::GlowScreen(screen);
 
+    // Create pick color screen (modal, not part of swipe navigation)
+    _pick_color_screen = new screens::PickColorScreen(screen);
+
+    // Wire up glow screen's add color button to show pick color screen
+    _glow_screen->setOnAddColorClicked([this]() {
+        ESP_UTILS_LOGI("Add color button clicked, showing color picker");
+        _pick_color_screen->show();
+    });
+
+    // Wire up pick color screen's callback to add color to glow screen
+    _pick_color_screen->setOnColorPicked([this](uint32_t color) {
+        ESP_UTILS_LOGI("Color picked: 0x%06X, adding to glow screen", color);
+        _glow_screen->addColor(color);
+    });
+
+    // Wire up pick color screen's modal visibility callbacks
+    _pick_color_screen->setOnModalShown([this]() {
+        ESP_UTILS_LOGI("Pick color modal shown, disabling gestures");
+        _modal_is_open = true;
+    });
+    
+    _pick_color_screen->setOnModalHidden([this]() {
+        ESP_UTILS_LOGI("Pick color modal hidden, enabling gestures");
+        _modal_is_open = false;
+    });
+
     // Add swipe gesture detection to the main screen
     lv_obj_add_event_cb(screen, [](lv_event_t *e) {
         RoboCatEars *app = RoboCatEars::requestInstance();
         if (!app) return;
+        
+        // Don't process gestures if a modal is open
+        if (app->_modal_is_open) {
+            return;
+        }
         
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
         

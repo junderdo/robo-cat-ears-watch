@@ -43,11 +43,23 @@ public:
      */
     lv_obj_t *getStatusLabel() const { return _status_label; }
 
-private:
     /**
-     * @brief Add a new random color to the list
+     * @brief Add a new color to the list
+     *
+     * @param color RGB color value to add
      */
-    void addRandomColor();
+    void addColor(uint32_t color);
+
+    /**
+     * @brief Set the callback for when add color button is clicked
+     *
+     * @param callback Function to call when add color button is clicked
+     */
+    void setOnAddColorClicked(std::function<void()> callback) {
+        _on_add_color_clicked = callback;
+    }
+
+private:
 
     /**
      * @brief Remove a color from the list
@@ -61,19 +73,13 @@ private:
      */
     void updateColorList();
 
-    /**
-     * @brief Generate a random color
-     *
-     * @return Random RGB color value
-     */
-    uint32_t generateRandomColor();
-
     lv_obj_t *_container;
     lv_obj_t *_status_label;
     lv_obj_t *_add_color_btn;
     lv_obj_t *_color_list_container;
     lv_obj_t *_trash_icon;
     std::vector<uint32_t> _colors;
+    std::function<void()> _on_add_color_clicked;
 };
 
 } // namespace esp_brookesia::apps::screens

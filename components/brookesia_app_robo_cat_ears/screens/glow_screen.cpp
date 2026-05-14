@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "glow_screen.hpp"
-#include <cstdlib>
-#include <ctime>
 
 #ifdef ESP_UTILS_LOG_TAG
 #   undef ESP_UTILS_LOG_TAG
@@ -21,7 +19,8 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
       _status_label(nullptr),
       _add_color_btn(nullptr),
       _color_list_container(nullptr),
-      _trash_icon(nullptr)
+      _trash_icon(nullptr),
+      _on_add_color_clicked(nullptr)
 {
     ESP_UTILS_LOGD("Creating glow screen");
 
@@ -62,8 +61,8 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
         }
 
         GlowScreen *screen = (GlowScreen *)lv_event_get_user_data(e);
-        if (screen) {
-            screen->addRandomColor();
+        if (screen && screen->_on_add_color_clicked) {
+            screen->_on_add_color_clicked();
         }
     }, LV_EVENT_CLICKED, this);
 
@@ -78,6 +77,9 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     lv_obj_set_flex_align(_color_list_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_all(_color_list_container, 10, 0);
     lv_obj_set_style_pad_gap(_color_list_container, 10, 0);
+    
+    // Enable layout animations
+    lv_obj_set_style_anim_time(_color_list_container, 300, 0);
 
     // Create trash icon at bottom (initially hidden)
     _trash_icon = lv_obj_create(_container);
@@ -97,9 +99,6 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     lv_obj_set_style_text_color(trash_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(trash_label);
 
-    // Seed random number generator
-    srand(time(nullptr));
-
     ESP_UTILS_LOGD("Glow screen created successfully");
 }
 
@@ -108,11 +107,10 @@ GlowScreen::~GlowScreen()
     // LVGL objects are automatically cleaned up when parent is deleted
 }
 
-void GlowScreen::addRandomColor()
+void GlowScreen::addColor(uint32_t color)
 {
-    uint32_t color = generateRandomColor();
     _colors.push_back(color);
-    ESP_UTILS_LOGI("Added random color: 0x%06X", color);
+    ESP_UTILS_LOGI("Added color: 0x%06X", color);
     updateColorList();
 }
 
@@ -120,8 +118,34 @@ void GlowScreen::removeColor(int index)
 {
     if (index >= 0 && index < _colors.size()) {
         ESP_UTILS_LOGI("Removing color at index %d: 0x%06X", index, _colors[index]);
+        
+        // Remove from vector
         _colors.erase(_colors.begin() + index);
-        updateColorList();
+        
+        // Find and delete the corresponding UI element
+        uint32_t child_count = lv_obj_get_child_cnt(_color_list_container);
+        for (uint32_t i = 0; i < child_count; i++) {
+            lv_obj_t *child = lv_obj_get_child(_color_list_container, i);
+            int *index_ptr = (int *)lv_obj_get_user_data(child);
+            if (index_ptr && *index_ptr == index) {
+                // Found the item to remove
+                delete index_ptr;
+                lv_obj_del(child);
+                break;
+            }
+        }
+        
+        // Update indices for remaining children (all items after the deleted one need their index decremented)
+        child_count = lv_obj_get_child_cnt(_color_list_container);
+        for (uint32_t i = 0; i < child_count; i++) {
+            lv_obj_t *child = lv_obj_get_child(_color_list_container, i);
+            int *index_ptr = (int *)lv_obj_get_user_data(child);
+            if (index_ptr && *index_ptr > index) {
+                (*index_ptr)--;
+            }
+        }
+        
+        // The layout will automatically animate the remaining items thanks to lv_obj_set_style_anim_time
     }
 }
 
@@ -171,14 +195,49 @@ void GlowScreen::updateColorList()
             lv_obj_t *color_list = lv_obj_get_parent(obj);
             GlowScreen *screen = (GlowScreen *)lv_obj_get_user_data(color_list);
             
-            if (screen && screen->_trash_icon) {
+            if (screen) {
                 // Show trash icon when starting to drag
-                lv_obj_clear_flag(screen->_trash_icon, LV_OBJ_FLAG_HIDDEN);
+                if (screen->_trash_icon) {
+                    lv_obj_clear_flag(screen->_trash_icon, LV_OBJ_FLAG_HIDDEN);
+                }
+                
+                // Darken the original square to show it's being dragged
+                lv_obj_set_style_opa(obj, LV_OPA_30, 0);
+                
+                // Get the color from the original square
+                lv_color_t color = lv_obj_get_style_bg_color(obj, 0);
+                
+                // Get current position in screen coordinates
+                lv_area_t obj_coords;
+                lv_obj_get_coords(obj, &obj_coords);
+                
+                // Create a clone for dragging
+                lv_obj_t *drag_clone = lv_obj_create(screen->_container);
+                lv_obj_set_size(drag_clone, 80, 80);
+                lv_obj_set_style_bg_color(drag_clone, color, 0);
+                lv_obj_set_style_bg_opa(drag_clone, LV_OPA_COVER, 0);
+                lv_obj_set_style_border_width(drag_clone, 2, 0);
+                lv_obj_set_style_border_color(drag_clone, lv_color_hex(0xFFFFFF), 0);
+                lv_obj_set_style_radius(drag_clone, 8, 0);
+                
+                // Position the clone at the same location
+                lv_area_t parent_coords;
+                lv_obj_get_coords(screen->_container, &parent_coords);
+                lv_obj_set_pos(drag_clone, obj_coords.x1 - parent_coords.x1, obj_coords.y1 - parent_coords.y1);
+                
+                // Make the clone float and bring to foreground
+                lv_obj_add_flag(drag_clone, LV_OBJ_FLAG_FLOATING);
+                lv_obj_move_foreground(drag_clone);
+                
+                // Store reference to original object and clone in user data
+                // We'll use a simple struct to pass both pointers
+                struct DragData {
+                    lv_obj_t *original;
+                    lv_obj_t *clone;
+                };
+                DragData *drag_data = new DragData{obj, drag_clone};
+                lv_obj_set_user_data(drag_clone, drag_data);
             }
-            
-            // Make the object float above layout and bring to foreground
-            lv_obj_add_flag(obj, LV_OBJ_FLAG_FLOATING);
-            lv_obj_move_foreground(obj);
         }, LV_EVENT_PRESSED, nullptr);
 
         // Add event handler for pressing (dragging movement)
@@ -186,25 +245,50 @@ void GlowScreen::updateColorList()
             lv_obj_t *obj = (lv_obj_t *)lv_event_get_target(e);
             lv_indev_t *indev = lv_indev_get_act();
             
-            if (indev) {
-                lv_point_t point;
-                lv_indev_get_point(indev, &point);
+            // Get the screen to find the drag clone
+            lv_obj_t *color_list = lv_obj_get_parent(obj);
+            GlowScreen *screen = (GlowScreen *)lv_obj_get_user_data(color_list);
+            
+            if (indev && screen) {
+                // Find the drag clone - it's a child of _container with matching opacity on original
+                // We need to search for it
+                lv_obj_t *drag_clone = nullptr;
+                uint32_t child_count = lv_obj_get_child_cnt(screen->_container);
+                for (uint32_t i = 0; i < child_count; i++) {
+                    lv_obj_t *child = lv_obj_get_child(screen->_container, i);
+                    void *user_data = lv_obj_get_user_data(child);
+                    if (user_data) {
+                        struct DragData {
+                            lv_obj_t *original;
+                            lv_obj_t *clone;
+                        };
+                        DragData *drag_data = (DragData *)user_data;
+                        if (drag_data->original == obj) {
+                            drag_clone = drag_data->clone;
+                            break;
+                        }
+                    }
+                }
                 
-                // Get parent coordinates to convert to relative position
-                lv_obj_t *parent = lv_obj_get_parent(obj);
-                lv_area_t parent_coords;
-                lv_obj_get_coords(parent, &parent_coords);
-                
-                // Convert screen coordinates to parent-relative coordinates
-                lv_coord_t rel_x = point.x - parent_coords.x1;
-                lv_coord_t rel_y = point.y - parent_coords.y1;
-                
-                // Center the object under the pointer
-                lv_obj_set_pos(obj, rel_x - lv_obj_get_width(obj) / 2,
-                                   rel_y - lv_obj_get_height(obj) / 2);
-                
-                // Keep object on top of everything
-                lv_obj_move_foreground(obj);
+                if (drag_clone) {
+                    lv_point_t point;
+                    lv_indev_get_point(indev, &point);
+                    
+                    // Get parent coordinates to convert to relative position
+                    lv_area_t parent_coords;
+                    lv_obj_get_coords(screen->_container, &parent_coords);
+                    
+                    // Convert screen coordinates to parent-relative coordinates
+                    lv_coord_t rel_x = point.x - parent_coords.x1;
+                    lv_coord_t rel_y = point.y - parent_coords.y1;
+                    
+                    // Center the clone under the pointer
+                    lv_obj_set_pos(drag_clone, rel_x - lv_obj_get_width(drag_clone) / 2,
+                                       rel_y - lv_obj_get_height(drag_clone) / 2);
+                    
+                    // Keep clone on top of everything
+                    lv_obj_move_foreground(drag_clone);
+                }
             }
         }, LV_EVENT_PRESSING, nullptr);
 
@@ -216,53 +300,79 @@ void GlowScreen::updateColorList()
             lv_obj_t *color_list = lv_obj_get_parent(obj);
             GlowScreen *screen = (GlowScreen *)lv_obj_get_user_data(color_list);
             
-            if (screen && screen->_trash_icon) {
-                // Check if the color square was dropped on the trash icon
-                lv_area_t obj_coords;
-                lv_obj_get_coords(obj, &obj_coords);
+            if (screen) {
+                // Find the drag clone
+                lv_obj_t *drag_clone = nullptr;
+                struct DragData {
+                    lv_obj_t *original;
+                    lv_obj_t *clone;
+                };
+                DragData *drag_data = nullptr;
                 
-                lv_area_t trash_coords;
-                lv_obj_get_coords(screen->_trash_icon, &trash_coords);
-                
-                // Check if the areas overlap
-                bool overlaps = !(obj_coords.x2 < trash_coords.x1 ||
-                                 obj_coords.x1 > trash_coords.x2 ||
-                                 obj_coords.y2 < trash_coords.y1 ||
-                                 obj_coords.y1 > trash_coords.y2);
-                
-                if (overlaps) {
-                    // Dropped on trash - delete this color
-                    int *index_ptr = (int *)lv_obj_get_user_data(obj);
-                    if (index_ptr) {
-                        ESP_UTILS_LOGI("Color dropped on trash, deleting index %d", *index_ptr);
-                        screen->removeColor(*index_ptr);
-                        // Memory will be cleaned up in updateColorList
+                uint32_t child_count = lv_obj_get_child_cnt(screen->_container);
+                for (uint32_t i = 0; i < child_count; i++) {
+                    lv_obj_t *child = lv_obj_get_child(screen->_container, i);
+                    void *user_data = lv_obj_get_user_data(child);
+                    if (user_data) {
+                        DragData *data = (DragData *)user_data;
+                        if (data->original == obj) {
+                            drag_clone = data->clone;
+                            drag_data = data;
+                            break;
+                        }
                     }
-                } else {
-                    // Not dropped on trash - animate back to original position
-                    // For simplicity, just refresh the list
-                    screen->updateColorList();
                 }
                 
-                // Hide trash icon
-                lv_obj_add_flag(screen->_trash_icon, LV_OBJ_FLAG_HIDDEN);
+                if (drag_clone && screen->_trash_icon) {
+                    // Check if the clone was dropped on the trash icon
+                    lv_area_t clone_coords;
+                    lv_obj_get_coords(drag_clone, &clone_coords);
+                    
+                    lv_area_t trash_coords;
+                    lv_obj_get_coords(screen->_trash_icon, &trash_coords);
+                    
+                    // Check if the areas overlap
+                    bool overlaps = !(clone_coords.x2 < trash_coords.x1 ||
+                                     clone_coords.x1 > trash_coords.x2 ||
+                                     clone_coords.y2 < trash_coords.y1 ||
+                                     clone_coords.y1 > trash_coords.y2);
+                    
+                    if (overlaps) {
+                        // Dropped on trash - delete this color
+                        int *index_ptr = (int *)lv_obj_get_user_data(obj);
+                        if (index_ptr) {
+                            ESP_UTILS_LOGI("Color dropped on trash, deleting index %d", *index_ptr);
+                            int index_to_delete = *index_ptr;
+                            
+                            // Delete the clone
+                            if (drag_data) {
+                                delete drag_data;
+                            }
+                            lv_obj_del(drag_clone);
+                            
+                            // Remove from vector and rebuild list with animation
+                            screen->removeColor(index_to_delete);
+                        }
+                    } else {
+                        // Not dropped on trash - restore original opacity and delete clone
+                        lv_obj_set_style_opa(obj, LV_OPA_COVER, 0);
+                        
+                        // Delete the clone
+                        if (drag_data) {
+                            delete drag_data;
+                        }
+                        lv_obj_del(drag_clone);
+                    }
+                    
+                    // Hide trash icon
+                    lv_obj_add_flag(screen->_trash_icon, LV_OBJ_FLAG_HIDDEN);
+                }
             }
         }, LV_EVENT_RELEASED, nullptr);
     }
 
     // Store screen pointer in color list container for callback access
     lv_obj_set_user_data(_color_list_container, this);
-}
-
-uint32_t GlowScreen::generateRandomColor()
-{
-    // Generate random RGB values
-    uint8_t r = rand() % 256;
-    uint8_t g = rand() % 256;
-    uint8_t b = rand() % 256;
-    
-    // Combine into 24-bit color
-    return (r << 16) | (g << 8) | b;
 }
 
 } // namespace esp_brookesia::apps::screens

@@ -62,7 +62,7 @@ ScanScreen::ScanScreen(lv_obj_t *parent_screen,
     // Create a scan button (centered at bottom, shown when not connected)
     _scan_btn = lv_btn_create(_container);
     lv_obj_set_size(_scan_btn, 280, 80);
-    lv_obj_align(_scan_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_align(_scan_btn, LV_ALIGN_BOTTOM_MID, 0, -24);
 
     lv_obj_t *scan_label = lv_label_create(_scan_btn);
     lv_label_set_text(scan_label, LV_SYMBOL_REFRESH " Scan for Ears");
