@@ -15,7 +15,7 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
     , _panel(nullptr)
     , _modes_list(nullptr)
     , _speed_slider(nullptr)
-    , _close_btn(nullptr)
+    , _cancel_btn(nullptr)
     , _ok_btn(nullptr)
     , _selected_mode_btn(nullptr)
     , _on_mode_selected(nullptr)
@@ -95,6 +95,9 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
         }, LV_EVENT_CLICKED, this);
     }
 
+    // Set "Solid" as default active mode
+    updateModeButtonStates(_mode_buttons[0]);
+
     // Speed slider at bottom of panel
     lv_obj_t *speed_label = lv_label_create(_panel);
     lv_label_set_text(speed_label, "Speed");
@@ -126,16 +129,16 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
     lv_obj_set_flex_align(btn_container, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(btn_container, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Close button
-    _close_btn = lv_btn_create(btn_container);
-    lv_obj_set_size(_close_btn, 100, 50);
-    lv_obj_set_style_bg_color(_close_btn, lv_color_hex(0x606060), 0);
+    // Cancel button
+    _cancel_btn = lv_btn_create(btn_container);
+    lv_obj_set_size(_cancel_btn, 100, 50);
+    lv_obj_set_style_bg_color(_cancel_btn, lv_color_hex(0x606060), 0);
 
-    lv_obj_t *close_label = lv_label_create(_close_btn);
-    lv_label_set_text(close_label, "Close");
-    lv_obj_center(close_label);
+    lv_obj_t *cancel_label = lv_label_create(_cancel_btn);
+    lv_label_set_text(cancel_label, "Cancel");
+    lv_obj_center(cancel_label);
 
-    lv_obj_add_event_cb(_close_btn, [](lv_event_t *e) {
+    lv_obj_add_event_cb(_cancel_btn, [](lv_event_t *e) {
         ModesScreen *screen = (ModesScreen *)lv_event_get_user_data(e);
         if (screen) {
             screen->hide();
@@ -192,6 +195,11 @@ void ModesScreen::show()
     if (_container) {
         lv_obj_clear_flag(_container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_move_foreground(_container);
+        
+        // Restore visual state of selected mode
+        if (_selected_mode_btn) {
+            updateModeButtonStates(_selected_mode_btn);
+        }
     }
     
     // Notify that modal is shown
