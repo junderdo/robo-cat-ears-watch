@@ -12,7 +12,7 @@
 #include "esp_gap_ble_api.h"
 #include "esp_gattc_api.h"
 #include "screens/scan_screen.hpp"
-#include "screens/control_screen.hpp"
+#include "screens/animate_screen.hpp"
 
 namespace esp_brookesia::apps {
 
@@ -191,7 +191,7 @@ private:
 
     static RoboCatEars *_instance;
     screens::ScanScreen *_scan_screen;
-    screens::ControlScreen *_control_screen;
+    screens::AnimateScreen *_animate_screen;
     int _current_screen;
     std::vector<BleDevice> _discovered_devices;
     bool _ble_initialized;

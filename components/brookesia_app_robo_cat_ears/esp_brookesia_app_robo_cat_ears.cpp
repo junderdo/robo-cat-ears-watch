@@ -48,7 +48,7 @@ RoboCatEars *RoboCatEars::requestInstance(bool use_status_bar, bool use_navigati
 RoboCatEars::RoboCatEars(bool use_status_bar, bool use_navigation_bar):
     App(APP_NAME, &esp_brookesia_app_icon_launcher_robo_cat_ears_112_112, true, use_status_bar, use_navigation_bar),
     _scan_screen(nullptr),
-    _control_screen(nullptr),
+    _animate_screen(nullptr),
     _current_screen(0),
     _ble_initialized(false),
     _scanning(false),
@@ -76,9 +76,9 @@ RoboCatEars::~RoboCatEars()
         delete _scan_screen;
         _scan_screen = nullptr;
     }
-    if (_control_screen) {
-        delete _control_screen;
-        _control_screen = nullptr;
+    if (_animate_screen) {
+        delete _animate_screen;
+        _animate_screen = nullptr;
     }
 }
 
@@ -167,7 +167,7 @@ bool RoboCatEars::run(void)
         }
     );
 
-    _control_screen = new screens::ControlScreen(
+    _animate_screen = new screens::AnimateScreen(
         screen,
         // on_command_clicked
         [this](const std::string& command) {
@@ -184,10 +184,10 @@ bool RoboCatEars::run(void)
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
         
         if (dir == LV_DIR_LEFT && app->_current_screen == 0) {
-            // Swipe left from scan screen to control screen
+            // Swipe left from scan screen to animate screen
             app->switchToScreen(1);
         } else if (dir == LV_DIR_RIGHT && app->_current_screen == 1) {
-            // Swipe right from control screen to scan screen
+            // Swipe right from animate screen to scan screen
             app->switchToScreen(0);
         }
     }, LV_EVENT_GESTURE, nullptr);
@@ -700,7 +700,7 @@ void RoboCatEars::disconnect()
 
 void RoboCatEars::updateConnectionStatus()
 {
-    if (!_scan_screen || !_control_screen) {
+    if (!_scan_screen || !_animate_screen) {
         ESP_UTILS_LOGW("updateConnectionStatus called but UI not initialized");
         return;  // UI not initialized yet
     }
@@ -717,9 +717,9 @@ void RoboCatEars::updateConnectionStatus()
             lv_label_set_text(app->_scan_screen->getStatusLabel(), status_text.c_str());
             lv_obj_set_style_text_color(app->_scan_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
-            // Update control screen status label too
-            lv_label_set_text(app->_control_screen->getStatusLabel(), status_text.c_str());
-            lv_obj_set_style_text_color(app->_control_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
+            // Update animate screen status label too
+            lv_label_set_text(app->_animate_screen->getStatusLabel(), status_text.c_str());
+            lv_obj_set_style_text_color(app->_animate_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
             // Show disconnect button, hide scan button
             lv_obj_clear_flag(app->_scan_screen->getDisconnectButton(), LV_OBJ_FLAG_HIDDEN);
@@ -730,9 +730,9 @@ void RoboCatEars::updateConnectionStatus()
             lv_label_set_text(app->_scan_screen->getStatusLabel(), "Not connected");
             lv_obj_set_style_text_color(app->_scan_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
             
-            // Update control screen status label too
-            lv_label_set_text(app->_control_screen->getStatusLabel(), "Not connected");
-            lv_obj_set_style_text_color(app->_control_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
+            // Update animate screen status label too
+            lv_label_set_text(app->_animate_screen->getStatusLabel(), "Not connected");
+            lv_obj_set_style_text_color(app->_animate_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
             
             // Show scan button, hide disconnect button
             lv_obj_clear_flag(app->_scan_screen->getScanButton(), LV_OBJ_FLAG_HIDDEN);
@@ -1033,23 +1033,23 @@ void RoboCatEars::switchToScreen(int screen_index)
 {
     ESP_UTILS_LOGD("Switching to screen %d", screen_index);
     
-    if (!_scan_screen || !_control_screen) {
+    if (!_scan_screen || !_animate_screen) {
         ESP_UTILS_LOGE("Screens not initialized");
         return;
     }
     
     if (screen_index == 0) {
-        // Show scan screen, hide control screen
+        // Show scan screen, hide animate screen
         lv_obj_clear_flag(_scan_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(_control_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(_animate_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
         _current_screen = 0;
     } else if (screen_index == 1) {
-        // Show control screen, hide scan screen
+        // Show animate screen, hide scan screen
         lv_obj_add_flag(_scan_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(_control_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(_animate_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
         _current_screen = 1;
         
-        // Update the control screen status label to match current connection state
+        // Update the animate screen status label to match current connection state
         updateConnectionStatus();
     }
 }
