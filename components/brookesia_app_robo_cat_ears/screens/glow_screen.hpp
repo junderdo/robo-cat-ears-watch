@@ -9,6 +9,9 @@
 #include "lvgl.h"
 #include <functional>
 #include <vector>
+#include <memory>
+#include <string>
+#include "modes_screen.hpp"
 
 namespace esp_brookesia::apps::screens {
 
@@ -72,14 +75,31 @@ private:
      * @brief Update the color list UI
      */
     void updateColorList();
+    
+    /**
+     * @brief Update the modes button label with current mode and speed
+     */
+    void updateModesButtonLabel();
+    
+    /**
+     * @brief Reorder a color to a new position in the list
+     * 
+     * @param from_index Current index of the color
+     * @param to_index Target index for the color
+     */
+    void reorderColor(int from_index, int to_index);
 
     lv_obj_t *_container;
     lv_obj_t *_status_label;
     lv_obj_t *_add_color_btn;
     lv_obj_t *_color_list_container;
     lv_obj_t *_trash_icon;
+    lv_obj_t *_modes_btn_label;
     std::vector<uint32_t> _colors;
     std::function<void()> _on_add_color_clicked;
+    std::unique_ptr<ModesScreen> _modes_screen;
+    std::string _current_mode;
+    int _current_speed;
 };
 
 } // namespace esp_brookesia::apps::screens

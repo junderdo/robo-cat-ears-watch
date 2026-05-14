@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "glow_screen.hpp"
+#include <cstdio>
 
 #ifdef ESP_UTILS_LOG_TAG
 #   undef ESP_UTILS_LOG_TAG
@@ -20,7 +21,10 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
       _add_color_btn(nullptr),
       _color_list_container(nullptr),
       _trash_icon(nullptr),
-      _on_add_color_clicked(nullptr)
+      _modes_btn_label(nullptr),
+      _on_add_color_clicked(nullptr),
+      _current_mode("Solid"),
+      _current_speed(50)
 {
     ESP_UTILS_LOGD("Creating glow screen");
 
@@ -42,10 +46,25 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     lv_obj_set_style_text_align(_status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(_status_label, LV_ALIGN_TOP_MID, 0, 15);
 
-    // Create "Add Color" button
+    // Create a scrollable container for the color list
+    _color_list_container = lv_obj_create(_container);
+    lv_obj_set_size(_color_list_container, lv_pct(90), 200);
+    lv_obj_align(_color_list_container, LV_ALIGN_TOP_MID, 0, 60);
+    lv_obj_set_style_bg_opa(_color_list_container, LV_OPA_10, 0);
+    lv_obj_set_style_border_width(_color_list_container, 1, 0);
+    lv_obj_set_style_border_color(_color_list_container, lv_color_hex(0x404040), 0);
+    lv_obj_set_flex_flow(_color_list_container, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(_color_list_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_all(_color_list_container, 10, 0);
+    lv_obj_set_style_pad_gap(_color_list_container, 10, 0);
+    
+    // Enable layout animations (600ms for smooth, visible animation)
+    lv_obj_set_style_anim_time(_color_list_container, 600, 0);
+
+    // Create "Add Color" button (below color list)
     _add_color_btn = lv_btn_create(_container);
-    lv_obj_set_size(_add_color_btn, 250, 60);
-    lv_obj_align(_add_color_btn, LV_ALIGN_TOP_MID, 0, 70);
+    lv_obj_set_size(_add_color_btn, 260, 60);
+    lv_obj_align(_add_color_btn, LV_ALIGN_TOP_MID, 0, 275);
 
     lv_obj_t *add_label = lv_label_create(_add_color_btn);
     lv_label_set_text(add_label, LV_SYMBOL_PLUS " Add Color");
@@ -66,21 +85,45 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
         }
     }, LV_EVENT_CLICKED, this);
 
-    // Create a scrollable container for the color list
-    _color_list_container = lv_obj_create(_container);
-    lv_obj_set_size(_color_list_container, lv_pct(90), 200);
-    lv_obj_align(_color_list_container, LV_ALIGN_TOP_MID, 0, 150);
-    lv_obj_set_style_bg_opa(_color_list_container, LV_OPA_10, 0);
-    lv_obj_set_style_border_width(_color_list_container, 1, 0);
-    lv_obj_set_style_border_color(_color_list_container, lv_color_hex(0x404040), 0);
-    lv_obj_set_flex_flow(_color_list_container, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(_color_list_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_all(_color_list_container, 10, 0);
-    lv_obj_set_style_pad_gap(_color_list_container, 10, 0);
+    // Create "Modes" button at bottom
+    lv_obj_t *modes_btn = lv_btn_create(_container);
+    lv_obj_set_size(modes_btn, 260, 60);
+    lv_obj_align(modes_btn, LV_ALIGN_BOTTOM_MID, 0, -80);
     
-    // Enable layout animations
-    lv_obj_set_style_anim_time(_color_list_container, 300, 0);
-
+    _modes_btn_label = lv_label_create(modes_btn);
+    lv_label_set_text(_modes_btn_label, LV_SYMBOL_SETTINGS " Solid | " LV_SYMBOL_PLAY " 50");
+    lv_obj_set_style_text_font(_modes_btn_label, &lv_font_montserrat_22, 0);
+    lv_obj_center(_modes_btn_label);
+    
+    // Create modes screen
+    _modes_screen = std::make_unique<ModesScreen>(_container);
+    
+    // Set up callbacks
+    _modes_screen->setOnModeSelected([this](const char *mode) {
+        ESP_UTILS_LOGI("Mode selected: %s", mode);
+        _current_mode = mode;
+        updateModesButtonLabel();
+    });
+    
+    _modes_screen->setOnSpeedChanged([this](int speed) {
+        ESP_UTILS_LOGI("Speed changed: %d", speed);
+        _current_speed = speed;
+        updateModesButtonLabel();
+    });
+    
+    _modes_screen->setOnConfirmed([this]() {
+        ESP_UTILS_LOGI("Modes confirmed - Mode: %s, Speed: %d", _current_mode.c_str(), _current_speed);
+        // TODO: Apply mode and speed settings
+    });
+    
+    // Event handler for modes button - show modal
+    lv_obj_add_event_cb(modes_btn, [](lv_event_t *e) {
+        GlowScreen *screen = (GlowScreen *)lv_event_get_user_data(e);
+        if (screen && screen->_modes_screen) {
+            screen->_modes_screen->show();
+        }
+    }, LV_EVENT_CLICKED, this);
+    
     // Create trash icon at bottom (initially hidden)
     _trash_icon = lv_obj_create(_container);
     lv_obj_set_size(_trash_icon, 80, 80);
@@ -149,6 +192,56 @@ void GlowScreen::removeColor(int index)
     }
 }
 
+void GlowScreen::updateModesButtonLabel()
+{
+    if (_modes_btn_label) {
+        char label_text[64];
+        snprintf(label_text, sizeof(label_text), LV_SYMBOL_SETTINGS " %s | " LV_SYMBOL_PLAY " %d", _current_mode.c_str(), _current_speed);
+        lv_label_set_text(_modes_btn_label, label_text);
+    }
+}
+void GlowScreen::reorderColor(int from_index, int to_index)
+{
+    if (from_index < 0 || from_index >= _colors.size() ||
+        to_index < 0 || to_index >= _colors.size() ||
+        from_index == to_index) {
+        return;
+    }
+    
+    // Move the color in the vector
+    uint32_t color = _colors[from_index];
+    _colors.erase(_colors.begin() + from_index);
+    _colors.insert(_colors.begin() + to_index, color);
+    
+    // Find the UI element being dragged
+    lv_obj_t *dragged_obj = nullptr;
+    uint32_t child_count = lv_obj_get_child_cnt(_color_list_container);
+    
+    for (uint32_t i = 0; i < child_count; i++) {
+        lv_obj_t *child = lv_obj_get_child(_color_list_container, i);
+        int *index_ptr = (int *)lv_obj_get_user_data(child);
+        if (index_ptr && *index_ptr == from_index) {
+            dragged_obj = child;
+            break;
+        }
+    }
+    
+    if (dragged_obj) {
+        // Move the UI element to the new position
+        // LVGL uses 0-based indexing, where 0 is the first child
+        lv_obj_move_to_index(dragged_obj, to_index);
+        
+        // Update all indices in user_data to match new positions
+        child_count = lv_obj_get_child_cnt(_color_list_container);
+        for (uint32_t i = 0; i < child_count; i++) {
+            lv_obj_t *child = lv_obj_get_child(_color_list_container, i);
+            int *index_ptr = (int *)lv_obj_get_user_data(child);
+            if (index_ptr) {
+                *index_ptr = i; // Update to match visual position
+            }
+        }
+    }
+}
 void GlowScreen::updateColorList()
 {
     // Free allocated memory for indices before clearing
@@ -288,6 +381,45 @@ void GlowScreen::updateColorList()
                     
                     // Keep clone on top of everything
                     lv_obj_move_foreground(drag_clone);
+                    
+                    // Check if clone is hovering over another color square
+                    lv_area_t clone_coords;
+                    lv_obj_get_coords(drag_clone, &clone_coords);
+                    
+                    // Get the current dragged item's index
+                    int *dragged_index_ptr = (int *)lv_obj_get_user_data(obj);
+                    if (dragged_index_ptr) {
+                        int dragged_index = *dragged_index_ptr;
+                        
+                        // Check all color squares for overlap
+                        uint32_t color_count = lv_obj_get_child_cnt(screen->_color_list_container);
+                        for (uint32_t i = 0; i < color_count; i++) {
+                            lv_obj_t *other_square = lv_obj_get_child(screen->_color_list_container, i);
+                            
+                            // Skip the dragged square itself
+                            if (other_square == obj) continue;
+                            
+                            int *other_index_ptr = (int *)lv_obj_get_user_data(other_square);
+                            if (other_index_ptr) {
+                                int other_index = *other_index_ptr;
+                                
+                                // Check if clone overlaps with this square
+                                lv_area_t other_coords;
+                                lv_obj_get_coords(other_square, &other_coords);
+                                
+                                bool overlaps = !(clone_coords.x2 < other_coords.x1 ||
+                                                 clone_coords.x1 > other_coords.x2 ||
+                                                 clone_coords.y2 < other_coords.y1 ||
+                                                 clone_coords.y1 > other_coords.y2);
+                                
+                                if (overlaps && dragged_index != other_index) {
+                                    // Hovering over a different square - trigger reorder
+                                    screen->reorderColor(dragged_index, other_index);
+                                    break; // Only process one overlap at a time
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }, LV_EVENT_PRESSING, nullptr);

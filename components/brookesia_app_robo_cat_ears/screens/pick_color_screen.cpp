@@ -45,7 +45,7 @@ PickColorScreen::PickColorScreen(lv_obj_t *parent)
     _color_preview = lv_obj_create(_panel);
     lv_obj_set_size(_color_preview, 80, 80);
     lv_obj_align(_color_preview, LV_ALIGN_TOP_MID, 0, 12);
-    lv_obj_set_style_bg_color(_color_preview, lv_color_hex(0xFF0000), 0);
+    lv_obj_set_style_bg_color(_color_preview, lv_color_hex(0x3380B3), 0);
     lv_obj_set_style_border_width(_color_preview, 2, 0);
     lv_obj_set_style_border_color(_color_preview, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_radius(_color_preview, 10, 0);
@@ -60,7 +60,7 @@ PickColorScreen::PickColorScreen(lv_obj_t *parent)
     lv_obj_set_size(_red_slider, lv_pct(65), 30);
     lv_obj_align(_red_slider, LV_ALIGN_TOP_LEFT, 50, 110);
     lv_slider_set_range(_red_slider, 0, 255);
-    lv_slider_set_value(_red_slider, 255, LV_ANIM_OFF);
+    lv_slider_set_value(_red_slider, 51, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(_red_slider, lv_color_hex(0xFF0000), LV_PART_INDICATOR);
     lv_obj_add_event_cb(_red_slider, [](lv_event_t *e) {
         PickColorScreen *screen = (PickColorScreen *)lv_event_get_user_data(e);
@@ -79,7 +79,7 @@ PickColorScreen::PickColorScreen(lv_obj_t *parent)
     lv_obj_set_size(_green_slider, lv_pct(65), 30);
     lv_obj_align(_green_slider, LV_ALIGN_TOP_LEFT, 50, 170);
     lv_slider_set_range(_green_slider, 0, 255);
-    lv_slider_set_value(_green_slider, 0, LV_ANIM_OFF);
+    lv_slider_set_value(_green_slider, 128, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(_green_slider, lv_color_hex(0x00FF00), LV_PART_INDICATOR);
     lv_obj_add_event_cb(_green_slider, [](lv_event_t *e) {
         PickColorScreen *screen = (PickColorScreen *)lv_event_get_user_data(e);
@@ -98,7 +98,7 @@ PickColorScreen::PickColorScreen(lv_obj_t *parent)
     lv_obj_set_size(_blue_slider, lv_pct(65), 30);
     lv_obj_align(_blue_slider, LV_ALIGN_TOP_LEFT, 50, 230);
     lv_slider_set_range(_blue_slider, 0, 255);
-    lv_slider_set_value(_blue_slider, 0, LV_ANIM_OFF);
+    lv_slider_set_value(_blue_slider, 179, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(_blue_slider, lv_color_hex(0x0000FF), LV_PART_INDICATOR);
     lv_obj_add_event_cb(_blue_slider, [](lv_event_t *e) {
         PickColorScreen *screen = (PickColorScreen *)lv_event_get_user_data(e);
