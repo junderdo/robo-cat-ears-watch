@@ -91,7 +91,7 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     lv_obj_align(modes_btn, LV_ALIGN_BOTTOM_MID, 0, -80);
     
     _modes_btn_label = lv_label_create(modes_btn);
-    lv_label_set_text(_modes_btn_label, LV_SYMBOL_SETTINGS " Solid | " LV_SYMBOL_PLAY " 50");
+    lv_label_set_text(_modes_btn_label, LV_SYMBOL_SETTINGS " Solid | " LV_SYMBOL_PLAY " 50%");
     lv_obj_set_style_text_font(_modes_btn_label, &lv_font_montserrat_22, 0);
     lv_obj_center(_modes_btn_label);
     
@@ -196,7 +196,7 @@ void GlowScreen::updateModesButtonLabel()
 {
     if (_modes_btn_label) {
         char label_text[64];
-        snprintf(label_text, sizeof(label_text), LV_SYMBOL_SETTINGS " %s | " LV_SYMBOL_PLAY " %d", _current_mode.c_str(), _current_speed);
+        snprintf(label_text, sizeof(label_text), LV_SYMBOL_SETTINGS " %s | " LV_SYMBOL_PLAY " %d%%", _current_mode.c_str(), _current_speed);
         lv_label_set_text(_modes_btn_label, label_text);
     }
 }

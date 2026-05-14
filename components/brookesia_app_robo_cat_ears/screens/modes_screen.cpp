@@ -102,7 +102,7 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
     lv_obj_align(speed_label, LV_ALIGN_BOTTOM_LEFT, 20, -90);
 
     _speed_slider = lv_slider_create(_panel);
-    lv_obj_set_size(_speed_slider, lv_pct(75), 20);
+    lv_obj_set_size(_speed_slider, lv_pct(75), 24);
     lv_obj_align(_speed_slider, LV_ALIGN_BOTTOM_MID, 0, -90);
     lv_slider_set_range(_speed_slider, 1, 100);
     lv_slider_set_value(_speed_slider, 50, LV_ANIM_OFF);
@@ -118,7 +118,7 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
 
     // Create button container at bottom
     lv_obj_t *btn_container = lv_obj_create(_panel);
-    lv_obj_set_size(btn_container, lv_pct(100), 50);
+    lv_obj_set_size(btn_container, lv_pct(100), 60);
     lv_obj_align(btn_container, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_opa(btn_container, LV_OPA_0, 0);
     lv_obj_set_style_border_width(btn_container, 0, 0);
@@ -128,7 +128,7 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
 
     // Close button
     _close_btn = lv_btn_create(btn_container);
-    lv_obj_set_size(_close_btn, 100, 40);
+    lv_obj_set_size(_close_btn, 100, 50);
     lv_obj_set_style_bg_color(_close_btn, lv_color_hex(0x606060), 0);
 
     lv_obj_t *close_label = lv_label_create(_close_btn);
@@ -144,7 +144,7 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
 
     // OK button
     _ok_btn = lv_btn_create(btn_container);
-    lv_obj_set_size(_ok_btn, 100, 40);
+    lv_obj_set_size(_ok_btn, 100, 50);
     lv_obj_set_style_bg_color(_ok_btn, lv_color_hex(0x00AA00), 0);
     lv_obj_t *ok_label = lv_label_create(_ok_btn);
     lv_label_set_text(ok_label, "OK");
