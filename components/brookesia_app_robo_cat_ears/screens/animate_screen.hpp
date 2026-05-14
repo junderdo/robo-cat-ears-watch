@@ -1,5 +1,5 @@
 /*
- * Description: Control screen for Robo cat ears controller app
+ * Description: Animate screen for Robo cat ears controller app
  * Author: Jeff Underdown (junderdo)
  * Copyright (C) 2026 Milk Lab Creations
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -13,23 +13,23 @@
 namespace esp_brookesia::apps::screens {
 
 /**
- * @brief Control screen containing command buttons for the robo cat ears
+ * @brief Animate screen containing command buttons for the robo cat ears
  */
-class ControlScreen {
+class AnimateScreen {
 public:
     /**
-     * @brief Constructor - creates the control screen UI
+     * @brief Constructor - creates the animate screen UI
      *
      * @param parent_screen The parent LVGL screen object
      * @param on_command_clicked Callback for when a command button is clicked, receives command string
      */
-    ControlScreen(lv_obj_t *parent_screen,
+    AnimateScreen(lv_obj_t *parent_screen,
                   std::function<void(const std::string&)> on_command_clicked);
 
     /**
      * @brief Destructor
      */
-    ~ControlScreen();
+    ~AnimateScreen();
 
     /**
      * @brief Get the container object for this screen

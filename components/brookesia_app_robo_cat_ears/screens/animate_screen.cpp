@@ -1,28 +1,28 @@
 /*
- * Description: Control screen for Robo cat ears controller app
+ * Description: Animation control screen for Robo cat ears controller app
  * Author: Jeff Underdown (junderdo)
  * Copyright (C) 2026 Milk Lab Creations
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
-#include "control_screen.hpp"
+#include "animate_screen.hpp"
 
 #ifdef ESP_UTILS_LOG_TAG
 #   undef ESP_UTILS_LOG_TAG
 #endif
-#define ESP_UTILS_LOG_TAG "BS:ControlScreen"
+#define ESP_UTILS_LOG_TAG "BS:AnimateScreen"
 #include "esp_lib_utils.h"
 
 namespace esp_brookesia::apps::screens {
 
-ControlScreen::ControlScreen(lv_obj_t *parent_screen,
+AnimateScreen::AnimateScreen(lv_obj_t *parent_screen,
                              std::function<void(const std::string&)> on_command_clicked)
     : _container(nullptr),
       _status_label(nullptr),
       _on_command_clicked(on_command_clicked)
 {
-    ESP_UTILS_LOGD("Creating control screen");
+    ESP_UTILS_LOGD("Creating animate screen");
 
-    // Create a container for the control screen
+    // Create a container for the animate screen
     _container = lv_obj_create(parent_screen);
     lv_obj_set_size(_container, lv_pct(100), lv_pct(100));
     lv_obj_set_style_bg_opa(_container, LV_OPA_TRANSP, 0);
@@ -74,7 +74,7 @@ ControlScreen::ControlScreen(lv_obj_t *parent_screen,
             }
             
             lv_obj_t *btn = (lv_obj_t*)lv_event_get_current_target(e);
-            ControlScreen *screen = (ControlScreen *)lv_obj_get_user_data(btn);
+            AnimateScreen *screen = (AnimateScreen *)lv_obj_get_user_data(btn);
             std::string *cmd = (std::string *)lv_event_get_user_data(e);
             if (screen && screen->_on_command_clicked && cmd) {
                 screen->_on_command_clicked(*cmd);
@@ -85,10 +85,10 @@ ControlScreen::ControlScreen(lv_obj_t *parent_screen,
         lv_obj_set_user_data(btn, this);
     }
 
-    ESP_UTILS_LOGD("Control screen created successfully");
+    ESP_UTILS_LOGD("Animate screen created successfully");
 }
 
-ControlScreen::~ControlScreen()
+AnimateScreen::~AnimateScreen()
 {
     // LVGL objects are automatically cleaned up when parent is deleted
     // Note: The command strings allocated with 'new' should ideally be cleaned up,
