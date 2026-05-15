@@ -82,12 +82,36 @@ public:
     void disconnect();
 
     /**
-     * @brief Write data to the BLE characteristic
+     * @brief Write data to the ABF1 characteristic (animation control)
      *
      * @param data Data string to send
      * @return true if write initiated successfully, otherwise false
      */
     bool writeCharacteristic(const std::string &data);
+
+    /**
+     * @brief Write data to a specific BLE characteristic by handle
+     *
+     * @param char_handle Characteristic handle to write to
+     * @param data Data string to send
+     * @return true if write initiated successfully, otherwise false
+     */
+    bool writeCharacteristic(uint16_t char_handle, const std::string &data);
+
+    /**
+     * @brief Get the ABF1 characteristic handle (animation)
+     */
+    uint16_t getCharHandleABF1() const { return _char_handle_abf1; }
+
+    /**
+     * @brief Get the ABF2 characteristic handle (lighting)
+     */
+    uint16_t getCharHandleABF2() const { return _char_handle_abf2; }
+
+    /**
+     * @brief Check if services are discovered
+     */
+    bool isServiceDiscovered() const { return _service_discovered; }
 
     /**
      * @brief Save the last connected device to NVS
@@ -200,7 +224,8 @@ private:
     esp_ble_addr_type_t _connected_address_type;
     uint16_t _conn_id;
     esp_gatt_if_t _gattc_if;
-    uint16_t _char_handle;
+    uint16_t _char_handle_abf1;  // Animation control characteristic
+    uint16_t _char_handle_abf2;  // Lighting control characteristic
     bool _service_discovered;
 
     // Auto-reconnect support

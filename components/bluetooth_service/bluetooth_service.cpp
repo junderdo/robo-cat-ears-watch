@@ -40,7 +40,8 @@ BluetoothService::BluetoothService()
     , _connected_address_type(BLE_ADDR_TYPE_PUBLIC)
     , _conn_id(0)
     , _gattc_if(ESP_GATT_IF_NONE)
-    , _char_handle(0)
+    , _char_handle_abf1(0)
+    , _char_handle_abf2(0)
     , _service_discovered(false)
     , _last_connected_address("")
     , _last_connected_address_type(BLE_ADDR_TYPE_PUBLIC)
@@ -187,7 +188,8 @@ bool BluetoothService::init()
             service->_connected_address = "";
             service->_connected_device_name = "";
             service->_connected_address_type = BLE_ADDR_TYPE_PUBLIC;
-            service->_char_handle = 0;
+            service->_char_handle_abf1 = 0;
+            service->_char_handle_abf2 = 0;
             service->_service_discovered = false;
             
             // Notify connection status via callback
@@ -199,10 +201,13 @@ bool BluetoothService::init()
             if (param->search_cmpl.status == ESP_GATT_OK) {
                 ESP_LOGI(TAG, "Service search complete");
                 
-                // Target characteristic: ABF1 (writable command characteristic)
-                const uint16_t target_uuid16 = 0xABF1;
-                uint8_t target_uuid128[16] = {0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 
-                                              0x00, 0x10, 0x00, 0x00, 0xF1, 0xAB, 0x00, 0x00};
+                // Target characteristics: ABF1 (animation) and ABF2 (lighting)
+                const uint16_t target_uuid16_abf1 = 0xABF1;
+                const uint16_t target_uuid16_abf2 = 0xABF2;
+                uint8_t target_uuid128_abf1[16] = {0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 
+                                                    0x00, 0x10, 0x00, 0x00, 0xF1, 0xAB, 0x00, 0x00};
+                uint8_t target_uuid128_abf2[16] = {0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 
+                                                    0x00, 0x10, 0x00, 0x00, 0xF2, 0xAB, 0x00, 0x00};
                 
                 // Get all characteristics
                 uint16_t count = 0;
@@ -227,7 +232,7 @@ bool BluetoothService::init()
                                                             0);
                         
                         if (status == ESP_GATT_OK) {
-                            // Display all characteristics
+                            // Display all characteristics and search for ABF1 and ABF2
                             for (int i = 0; i < count; i++) {
                                 if (char_elems[i].uuid.len == ESP_UUID_LEN_16) {
                                     ESP_LOGI(TAG, "Char %d: UUID16=0x%04X, handle=0x%04x, properties=0x%02x",
@@ -235,11 +240,15 @@ bool BluetoothService::init()
                                                    char_elems[i].char_handle,
                                                    char_elems[i].properties);
                                     
-                                    // Check if this is our target characteristic (16-bit UUID)
-                                    if (char_elems[i].uuid.uuid.uuid16 == target_uuid16) {
-                                        service->_char_handle = char_elems[i].char_handle;
-                                        service->_service_discovered = true;
-                                        ESP_LOGI(TAG, ">>> Found target characteristic UUID16 ABF1, handle: 0x%04x <<<", service->_char_handle);
+                                    // Check for ABF1 (animation)
+                                    if (char_elems[i].uuid.uuid.uuid16 == target_uuid16_abf1) {
+                                        service->_char_handle_abf1 = char_elems[i].char_handle;
+                                        ESP_LOGI(TAG, ">>> Found ABF1 (animation) characteristic, handle: 0x%04x <<<", service->_char_handle_abf1);
+                                    }
+                                    // Check for ABF2 (lighting)
+                                    else if (char_elems[i].uuid.uuid.uuid16 == target_uuid16_abf2) {
+                                        service->_char_handle_abf2 = char_elems[i].char_handle;
+                                        ESP_LOGI(TAG, ">>> Found ABF2 (lighting) characteristic, handle: 0x%04x <<<", service->_char_handle_abf2);
                                     }
                                 } else if (char_elems[i].uuid.len == ESP_UUID_LEN_128) {
                                     uint8_t *u = char_elems[i].uuid.uuid.uuid128;
@@ -251,11 +260,15 @@ bool BluetoothService::init()
                                                    u[3], u[2], u[1], u[0],
                                                    char_elems[i].char_handle);
                                     
-                                    // Check if this is our target characteristic (128-bit UUID)
-                                    if (memcmp(char_elems[i].uuid.uuid.uuid128, target_uuid128, 16) == 0) {
-                                        service->_char_handle = char_elems[i].char_handle;
-                                        service->_service_discovered = true;
-                                        ESP_LOGI(TAG, ">>> Found target characteristic UUID128 ABF1, handle: 0x%04x <<<", service->_char_handle);
+                                    // Check for ABF1 (128-bit UUID)
+                                    if (memcmp(char_elems[i].uuid.uuid.uuid128, target_uuid128_abf1, 16) == 0) {
+                                        service->_char_handle_abf1 = char_elems[i].char_handle;
+                                        ESP_LOGI(TAG, ">>> Found ABF1 (animation) characteristic UUID128, handle: 0x%04x <<<", service->_char_handle_abf1);
+                                    }
+                                    // Check for ABF2 (128-bit UUID)
+                                    else if (memcmp(char_elems[i].uuid.uuid.uuid128, target_uuid128_abf2, 16) == 0) {
+                                        service->_char_handle_abf2 = char_elems[i].char_handle;
+                                        ESP_LOGI(TAG, ">>> Found ABF2 (lighting) characteristic UUID128, handle: 0x%04x <<<", service->_char_handle_abf2);
                                     }
                                 }
                             }
@@ -264,8 +277,13 @@ bool BluetoothService::init()
                     }
                 }
                 
-                if (!service->_service_discovered) {
-                    ESP_LOGW(TAG, "Target characteristic ABF1 not found");
+                // Mark service as discovered if at least ABF1 was found
+                if (service->_char_handle_abf1 != 0) {
+                    service->_service_discovered = true;
+                    ESP_LOGI(TAG, "Service discovery complete - ABF1: 0x%04x, ABF2: 0x%04x",
+                                   service->_char_handle_abf1, service->_char_handle_abf2);
+                } else {
+                    ESP_LOGW(TAG, "ABF1 characteristic not found");
                 }
             } else {
                 ESP_LOGE(TAG, "Service search failed, status: %d", param->search_cmpl.status);
@@ -311,7 +329,8 @@ void BluetoothService::deinit()
         _connected_address = "";
         _connected_device_name = "";
         _connected_address_type = BLE_ADDR_TYPE_PUBLIC;
-        _char_handle = 0;
+        _char_handle_abf1 = 0;
+        _char_handle_abf2 = 0;
         _service_discovered = false;
     }
 
@@ -537,22 +556,36 @@ void BluetoothService::disconnect()
 
 bool BluetoothService::writeCharacteristic(const std::string &data)
 {
+    // Default to ABF1 (animation control) for backward compatibility
+    return writeCharacteristic(_char_handle_abf1, data);
+}
+
+bool BluetoothService::writeCharacteristic(uint16_t char_handle, const std::string &data)
+{
     if (!_connected || _gattc_if == ESP_GATT_IF_NONE) {
         ESP_LOGW(TAG, "Cannot write: not connected");
         return false;
     }
     
-    if (!_service_discovered || _char_handle == 0) {
-        ESP_LOGW(TAG, "Cannot write: characteristic not discovered yet");
+    if (!_service_discovered || char_handle == 0) {
+        ESP_LOGW(TAG, "Cannot write: characteristic not discovered yet (handle=0x%04x)", char_handle);
         return false;
     }
     
-    ESP_LOGI(TAG, "Writing to characteristic: %s", data.c_str());
+    // Determine which characteristic we're writing to
+    const char *char_name = "unknown";
+    if (char_handle == _char_handle_abf1) {
+        char_name = "ABF1 (animation)";
+    } else if (char_handle == _char_handle_abf2) {
+        char_name = "ABF2 (lighting)";
+    }
+    
+    ESP_LOGI(TAG, "Writing to characteristic %s (0x%04x): %s", char_name, char_handle, data.c_str());
     
     esp_err_t ret = esp_ble_gattc_write_char(
         _gattc_if,
         _conn_id,
-        _char_handle,
+        char_handle,
         data.length(),
         (uint8_t *)data.c_str(),
         ESP_GATT_WRITE_TYPE_NO_RSP,

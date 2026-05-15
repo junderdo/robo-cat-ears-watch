@@ -62,6 +62,33 @@ public:
         _on_add_color_clicked = callback;
     }
 
+    /**
+     * @brief Load lighting data from the lighting service
+     * 
+     * Attempts to read lighting configuration from the ABF2 characteristic
+     * and updates the UI accordingly (colors, mode, speed)
+     */
+    void loadLightingData();
+
+    /**
+     * @brief Set the current mode
+     * 
+     * @param mode Mode name string
+     */
+    void setMode(const std::string &mode);
+
+    /**
+     * @brief Set the current speed
+     * 
+     * @param speed Speed value (1-100)
+     */
+    void setSpeed(int speed);
+
+    /**
+     * @brief Clear all colors from the list
+     */
+    void clearColors();
+
 private:
 
     /**

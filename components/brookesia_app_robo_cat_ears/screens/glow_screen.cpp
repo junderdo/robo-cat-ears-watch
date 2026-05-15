@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "glow_screen.hpp"
+#include "lighting_service.hpp"
+#include "bluetooth_service.hpp"
 #include <cstdio>
 
 #ifdef ESP_UTILS_LOG_TAG
@@ -145,6 +147,9 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     lv_obj_center(trash_label);
 
     ESP_UTILS_LOGD("Glow screen created successfully");
+    
+    // Load lighting data from the device if connected
+    loadLightingData();
 }
 
 GlowScreen::~GlowScreen()
@@ -525,6 +530,105 @@ void GlowScreen::updateColorList()
 
     // Store screen pointer in color list container for callback access
     lv_obj_set_user_data(_color_list_container, this);
+}
+
+void GlowScreen::loadLightingData()
+{
+    ESP_UTILS_LOGI("Attempting to load lighting data from service");
+    
+    // Check if we're connected to a device
+    robo_cat_ears::BluetoothService *bt_service = robo_cat_ears::BluetoothService::getInstance();
+    if (!bt_service || !bt_service->isConnected()) {
+        ESP_UTILS_LOGD("Not connected to device, skipping lighting data load");
+        return;
+    }
+    
+    // Check if ABF2 characteristic is available
+    if (bt_service->getCharHandleABF2() == 0) {
+        ESP_UTILS_LOGW("ABF2 characteristic not discovered, skipping lighting data load");
+        return;
+    }
+    
+    // Get lighting service instance
+    robo_cat_ears::LightingService *lighting_service = robo_cat_ears::LightingService::getInstance();
+    if (!lighting_service) {
+        ESP_UTILS_LOGE("Failed to get lighting service instance");
+        return;
+    }
+    
+    // Initialize lighting service if not already done
+    if (!lighting_service->init()) {
+        ESP_UTILS_LOGE("Failed to initialize lighting service");
+        return;
+    }
+    
+    // Read lighting data from device
+    robo_cat_ears::LightingData lighting_data;
+    if (!lighting_service->readLightingData(&lighting_data)) {
+        ESP_UTILS_LOGW("Failed to read lighting data from device");
+        return;
+    }
+    
+    ESP_UTILS_LOGI("Successfully loaded lighting data: mode=%s, speed=%d, colors=%zu",
+                   robo_cat_ears::LightingService::modeToString(lighting_data.mode),
+                   lighting_data.speed,
+                   lighting_data.colors.size());
+    
+    // Apply the loaded data to the UI
+    // 1. Clear existing colors
+    clearColors();
+    
+    // 2. Add colors from loaded data
+    for (const auto &color : lighting_data.colors) {
+        addColor(color.toUint32());
+    }
+    
+    // 3. Set mode and speed
+    const char *mode_str = robo_cat_ears::LightingService::modeToString(lighting_data.mode);
+    setMode(mode_str);
+    setSpeed(lighting_data.speed);
+    
+    ESP_UTILS_LOGI("Lighting data applied to UI");
+}
+
+void GlowScreen::setMode(const std::string &mode)
+{
+    _current_mode = mode;
+    
+    // Update the modes screen if it exists
+    if (_modes_screen) {
+        _modes_screen->setMode(mode.c_str());
+    }
+    
+    // Update the button label
+    updateModesButtonLabel();
+    
+    ESP_UTILS_LOGD("Mode set to: %s", mode.c_str());
+}
+
+void GlowScreen::setSpeed(int speed)
+{
+    if (speed < 1) speed = 1;
+    if (speed > 100) speed = 100;
+    
+    _current_speed = speed;
+    
+    // Update the modes screen if it exists
+    if (_modes_screen) {
+        _modes_screen->setSpeed(speed);
+    }
+    
+    // Update the button label
+    updateModesButtonLabel();
+    
+    ESP_UTILS_LOGD("Speed set to: %d", speed);
+}
+
+void GlowScreen::clearColors()
+{
+    _colors.clear();
+    updateColorList();
+    ESP_UTILS_LOGD("Colors cleared");
 }
 
 } // namespace esp_brookesia::apps::screens

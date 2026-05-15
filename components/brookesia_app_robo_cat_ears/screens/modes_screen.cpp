@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "modes_screen.hpp"
+#include <cstring>
 
 namespace esp_brookesia {
 namespace apps {
@@ -217,6 +218,37 @@ void ModesScreen::hide()
     // Notify that modal is hidden
     if (_on_modal_hidden) {
         _on_modal_hidden();
+    }
+}
+
+void ModesScreen::setMode(const char *mode)
+{
+    if (!mode) return;
+    
+    // Find the matching button and select it
+    const char *mode_names[] = {"Solid", "Breathing", "Marquee", "Chasing", "Rain"};
+    for (int i = 0; i < 5; i++) {
+        if (_mode_buttons[i] && strcmp(mode_names[i], mode) == 0) {
+            updateModeButtonStates(_mode_buttons[i]);
+            
+            // Trigger callback if set
+            if (_on_mode_selected) {
+                _on_mode_selected(mode);
+            }
+            break;
+        }
+    }
+}
+
+void ModesScreen::setSpeed(int speed)
+{
+    if (_speed_slider && speed >= 1 && speed <= 100) {
+        lv_slider_set_value(_speed_slider, speed, LV_ANIM_OFF);
+        
+        // Trigger callback if set
+        if (_on_speed_changed) {
+            _on_speed_changed(speed);
+        }
     }
 }
 

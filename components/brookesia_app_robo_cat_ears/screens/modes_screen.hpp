@@ -46,6 +46,20 @@ public:
         _on_modal_hidden = callback;
     }
 
+    /**
+     * @brief Set the mode programmatically
+     * 
+     * @param mode Mode name (e.g., "Solid", "Breathing", etc.)
+     */
+    void setMode(const char *mode);
+
+    /**
+     * @brief Set the speed programmatically
+     * 
+     * @param speed Speed value (1-100)
+     */
+    void setSpeed(int speed);
+
 private:
     lv_obj_t *_container;
     lv_obj_t *_panel;
