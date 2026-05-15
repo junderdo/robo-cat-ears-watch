@@ -69,6 +69,8 @@ public:
     using DeviceListUpdatedCallback = std::function<void(const std::vector<BleDevice> &devices)>;
     using ConnectionStatusCallback = std::function<void(bool connected, const std::string &device_name, const std::string &address)>;
     using ScanningStatusCallback = std::function<void(bool scanning)>;
+    using ServiceReadyCallback = std::function<void()>;
+    using ReadDataCallback = std::function<void(bool success, DataType type, const uint8_t *data, size_t length)>;
 
     /**
      * @brief Get the singleton instance of BluetoothService
@@ -126,9 +128,19 @@ public:
     bool writeDataPacket(const DataPacket &packet);
 
     /**
+     * @brief Read a data packet from the ABF1 characteristic
+     *
+     * @param data_type Type of data to request from the device
+     * @param callback Callback to invoke when data is received
+     * @return true if read initiated successfully, otherwise false
+     */
+    bool readDataPacket(DataType data_type, ReadDataCallback callback);
+
+    /**
      * @brief Get the ABF1 characteristic handle
      */
     uint16_t getCharHandleABF1() const { return _char_handle_abf1; }
+    uint16_t getCharHandleABF2() const { return _char_handle_abf2; }
 
     /**
      * @brief Check if services are discovered
@@ -215,6 +227,18 @@ public:
     void setScanningStatusCallback(ScanningStatusCallback callback) { _scanning_status_callback = callback; }
 
     /**
+     * @brief Set service ready callback (called after service discovery completes and device is ready for communication)
+     */
+    void setServiceReadyCallback(ServiceReadyCallback callback) { _service_ready_callback = callback; }
+
+    // Read state accessors (for polling-based read)
+    bool isReadComplete() const { return _read_complete; }
+    bool wasReadSuccessful() const { return _read_success; }
+    size_t getReadLength() const { return _read_length; }
+    const uint8_t* getReadBuffer() const { return _read_buffer; }
+    uint32_t getReadEventCount() const { return _read_event_count; }  // Debug
+
+    /**
      * @brief Handle BLE GAP events (static callback for ESP-IDF)
      */
     static void gapEventHandler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
@@ -246,8 +270,12 @@ private:
     esp_ble_addr_type_t _connected_address_type;
     uint16_t _conn_id;
     esp_gatt_if_t _gattc_if;
-    uint16_t _char_handle_abf1;  // Unified data transmission characteristic
+    uint16_t _char_handle_abf1;  // Data receive characteristic (write)
+    uint8_t _char_properties_abf1;  // Properties of ABF1 characteristic
+    uint16_t _char_handle_abf2;  // Data notify characteristic (read)
+    uint8_t _char_properties_abf2;  // Properties of ABF2 characteristic
     bool _service_discovered;
+    bool _mtu_configured;
 
     // Auto-reconnect support
     std::string _last_connected_address;
@@ -260,6 +288,16 @@ private:
     DeviceListUpdatedCallback _device_list_updated_callback;
     ConnectionStatusCallback _connection_status_callback;
     ScanningStatusCallback _scanning_status_callback;
+    ServiceReadyCallback _service_ready_callback;
+    ReadDataCallback _read_data_callback;
+    
+    // Simple buffer for read results (avoid callback issues in BLE context)
+    volatile bool _read_pending;
+    volatile bool _read_complete;
+    volatile bool _read_success;
+    uint8_t _read_buffer[256];
+    volatile size_t _read_length;
+    volatile uint32_t _read_event_count;  // Debug: count read events received
 };
 
 } // namespace robo_cat_ears

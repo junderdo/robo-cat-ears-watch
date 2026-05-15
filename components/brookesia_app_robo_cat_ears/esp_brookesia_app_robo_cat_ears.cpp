@@ -239,24 +239,39 @@ bool RoboCatEars::run(void)
     if (_bluetooth_service) {
         // Device list updated callback
         _bluetooth_service->setDeviceListUpdatedCallback([this](const std::vector<robo_cat_ears::BleDevice> &devices) {
-            updateDeviceList();
+            // Defer LVGL operations to avoid blocking BLE task
+            lv_async_call([](void* user_data) {
+                auto* app = static_cast<RoboCatEars*>(user_data);
+                app->updateDeviceList();
+            }, this);
         });
         
         // Connection status callback
         _bluetooth_service->setConnectionStatusCallback([this](bool connected, const std::string &device_name, const std::string &address) {
-            updateConnectionStatus();
-            updateDeviceList();  // Refresh device list to update highlighting
+            // Defer LVGL operations to avoid blocking BLE task
+            lv_async_call([](void* user_data) {
+                auto* app = static_cast<RoboCatEars*>(user_data);
+                app->updateConnectionStatus();
+                app->updateDeviceList();  // Refresh device list to update highlighting
+            }, this);
             
-            // Auto-switch to animate screen on successful connection
+            // Auto-switch to animate screen on successful connection (deferred to LVGL task)
             if (connected) {
                 ESP_UTILS_LOGI("Connection successful, switching to animate screen");
-                switchToScreen(1);
+                lv_async_call([](void* user_data) {
+                    auto* app = static_cast<RoboCatEars*>(user_data);
+                    app->switchToScreen(1);
+                }, this);
             }
         });
         
         // Scanning status callback
         _bluetooth_service->setScanningStatusCallback([this](bool scanning) {
-            updateDeviceList();
+            // Defer LVGL operations to avoid blocking BLE task
+            lv_async_call([](void* user_data) {
+                auto* app = static_cast<RoboCatEars*>(user_data);
+                app->updateDeviceList();
+            }, this);
         });
     }
 

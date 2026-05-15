@@ -89,5 +89,3 @@ service->readLightingData(&data);
 - `deinit()` - Clean up resources
 - `writeLightingData(data)` - Send lighting data to device
 - `readLightingData(data)` - Receive lighting data from device
-- `lightingDataToJson(data)` - Convert struct to JSON string
-- `jsonToLightingData(json, data)` - Parse JSON string to struct

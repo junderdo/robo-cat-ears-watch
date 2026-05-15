@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <functional>
 
 namespace robo_cat_ears {
 
@@ -75,6 +76,9 @@ struct LightingData {
  */
 class LightingService {
 public:
+    using DataLoadedCallback = std::function<void(const LightingData &data)>;
+    
+    bool jsonToLightingData(const std::string &json, LightingData *data);
     /**
      * @brief Get singleton instance
      */
@@ -101,29 +105,13 @@ public:
     bool writeLightingData(const LightingData *data);
     
     /**
-     * @brief Read lighting data from the ABF1 characteristic
+     * @brief Read lighting data from the ABF2 characteristic (async)
      * 
-     * @param data Pointer to lighting data structure to populate
-     * @return true if successful, false otherwise
+     * @param data Pointer to lighting data structure to populate with cached data immediately
+     * @param callback Optional callback invoked when actual data is loaded from device
+     * @return true if read request sent successfully, false otherwise
      */
-    bool readLightingData(LightingData *data);
-    
-    /**
-     * @brief Convert lighting data to JSON string (legacy/debugging)
-     * 
-     * @param data Pointer to lighting data structure
-     * @return JSON string representation
-     */
-    std::string lightingDataToJson(const LightingData *data);
-    
-    /**
-     * @brief Parse JSON string to lighting data (legacy/debugging)
-     * 
-     * @param json JSON string to parse
-     * @param data Pointer to lighting data structure to populate
-     * @return true if successful, false otherwise
-     */
-    bool jsonToLightingData(const std::string &json, LightingData *data);
+    bool readLightingData(LightingData *data, DataLoadedCallback callback = nullptr);
     
     /**
      * @brief Get the current lighting data (cached)

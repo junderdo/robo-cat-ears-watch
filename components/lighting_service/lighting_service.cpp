@@ -7,9 +7,15 @@
 #include "lighting_service.hpp"
 #include "bluetooth_service.hpp"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "cJSON.h"
+#include "lvgl.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <cstring>
 #include <algorithm>
+#include <memory>
 
 static const char *TAG = "LightingService";
 
@@ -206,7 +212,7 @@ bool LightingService::writeLightingData(const LightingData *data)
     return true;
 }
 
-bool LightingService::readLightingData(LightingData *data)
+bool LightingService::readLightingData(LightingData *data, DataLoadedCallback callback)
 {
     if (!_initialized) {
         ESP_LOGE(TAG, "Lighting service not initialized");
@@ -225,136 +231,105 @@ bool LightingService::readLightingData(LightingData *data)
         return false;
     }
     
-    // TODO: Implement read from ABF1 characteristic
-    // This will need notification/indication support in bluetooth_service
-    // For now, return the cached data
-    ESP_LOGW(TAG, "Read from characteristic not yet implemented, returning cached data");
-    *data = _current_data;
-    
-    return true;
-}
-
-std::string LightingService::lightingDataToJson(const LightingData *data)
-{
-    if (!data) {
-        return "";
-    }
-    
-    cJSON *root = cJSON_CreateObject();
-    if (!root) {
-        ESP_LOGE(TAG, "Failed to create JSON object");
-        return "";
-    }
-    
-    // Add mode
-    cJSON_AddStringToObject(root, "m", modeToString(data->mode));
-    
-    // Add speed
-    cJSON_AddNumberToObject(root, "s", data->speed);
-    
-    // Add colors array
-    cJSON *colors_array = cJSON_CreateArray();
-    if (!colors_array) {
-        ESP_LOGE(TAG, "Failed to create colors array");
-        cJSON_Delete(root);
-        return "";
-    }
-    
-    for (const auto &color : data->colors) {
-        cJSON *color_obj = cJSON_CreateObject();
-        if (!color_obj) {
-            continue;
-        }
-        cJSON_AddNumberToObject(color_obj, "r", color.r);
-        cJSON_AddNumberToObject(color_obj, "g", color.g);
-        cJSON_AddNumberToObject(color_obj, "b", color.b);
-        cJSON_AddItemToArray(colors_array, color_obj);
-    }
-    
-    cJSON_AddItemToObject(root, "c", colors_array);
-    
-    // Convert to string
-    char *json_str = cJSON_PrintUnformatted(root);
-    std::string result;
-    if (json_str) {
-        result = std::string(json_str);
-        free(json_str);
-    }
-    
-    cJSON_Delete(root);
-    
-    return result;
-}
-
-bool LightingService::jsonToLightingData(const std::string &json, LightingData *data)
-{
-    if (!data) {
-        ESP_LOGE(TAG, "Invalid data pointer");
+    // Check if connected
+    if (!bt_service->isConnected()) {
+        ESP_LOGE(TAG, "Not connected to device");
         return false;
     }
     
-    if (json.empty()) {
-        ESP_LOGE(TAG, "Empty JSON string");
+    // Check if ABF2 characteristic is available
+    if (bt_service->getCharHandleABF2() == 0) {
+        ESP_LOGE(TAG, "ABF2 characteristic not discovered");
         return false;
     }
     
-    cJSON *root = cJSON_Parse(json.c_str());
-    if (!root) {
-        ESP_LOGE(TAG, "Failed to parse JSON: %s", json.c_str());
-        return false;
-    }
+    ESP_LOGI(TAG, "Reading lighting data from device via ABF2 characteristic");
     
-    // Parse mode
-    cJSON *mode_item = cJSON_GetObjectItem(root, "mode");
-    if (mode_item && cJSON_IsString(mode_item)) {
-        data->mode = stringToMode(mode_item->valuestring);
-    } else {
-        ESP_LOGW(TAG, "Mode not found in JSON, using default");
-        data->mode = LightingMode::SOLID;
-    }
+    // Capture callback in a shared pointer so it can be safely copied
+    auto callback_ptr = std::make_shared<DataLoadedCallback>(callback);
     
-    // Parse speed
-    cJSON *speed_item = cJSON_GetObjectItem(root, "speed");
-    if (speed_item && cJSON_IsNumber(speed_item)) {
-        data->speed = (uint8_t)std::clamp(speed_item->valueint, 1, 100);
-    } else {
-        ESP_LOGW(TAG, "Speed not found in JSON, using default");
-        data->speed = 50;
-    }
-    
-    // Parse colors
-    data->colors.clear();
-    cJSON *colors_array = cJSON_GetObjectItem(root, "colors");
-    if (colors_array && cJSON_IsArray(colors_array)) {
-        int count = cJSON_GetArraySize(colors_array);
-        int max_colors = std::min(count, 32);  // Limit to 32 colors
-        
-        for (int i = 0; i < max_colors; i++) {
-            cJSON *color_obj = cJSON_GetArrayItem(colors_array, i);
-            if (!color_obj || !cJSON_IsObject(color_obj)) {
-                continue;
+    // Initiate read request with minimal callback
+    bool request_sent = bt_service->readDataPacket(DataType::LIGHTING, 
+        [callback_ptr](bool success, DataType type, const uint8_t* buffer, size_t length) {
+            // Called from BLE task - NO logging, NO allocations allowed here
+            // Allocate a copy of the buffer to pass to async call
+            if (success && length > 0 && length <= 256) {
+                uint8_t* buffer_copy = new uint8_t[length];
+                for (size_t i = 0; i < length; i++) {
+                    buffer_copy[i] = buffer[i];
+                }
+                
+                // Package the data for async processing
+                struct AsyncData {
+                    uint8_t* buffer;
+                    size_t length;
+                    std::shared_ptr<DataLoadedCallback> callback;
+                };
+                AsyncData* async_data = new AsyncData{buffer_copy, length, callback_ptr};
+                
+                // Use LVGL async call to defer processing to LVGL task
+                lv_async_call([](void* user_data) {
+                    AsyncData* async_data = static_cast<AsyncData*>(user_data);
+                    
+                    if (async_data->length < 2) {
+                        ESP_LOGE(TAG, "Read failed or invalid length");
+                        delete[] async_data->buffer;
+                        delete async_data;
+                        return;
+                    }
+                    
+                    DataType type = static_cast<DataType>(async_data->buffer[0]);
+                    if (type != DataType::LIGHTING) {
+                        ESP_LOGE(TAG, "Invalid data type in response: got 0x%02x", async_data->buffer[0]);
+                        delete[] async_data->buffer;
+                        delete async_data;
+                        return;
+                    }
+                    
+                    // Create string from data portion (skip type byte)
+                    std::string packet_data((const char*)&async_data->buffer[1], async_data->length - 1);
+                    
+                    // Log the raw bytes for debugging
+                    ESP_LOGI(TAG, "Raw packed data (%zu bytes): mode=0x%02x speed=0x%02x num_colors=0x%02x",
+                             packet_data.length(),
+                             packet_data.length() > 0 ? (uint8_t)packet_data[0] : 0,
+                             packet_data.length() > 1 ? (uint8_t)packet_data[1] : 0,
+                             packet_data.length() > 2 ? (uint8_t)packet_data[2] : 0);
+                    
+                    // Unpack into a temporary LightingData
+                    LightingData temp_data;
+                    if (LightingData::unpack(packet_data, temp_data)) {
+                        ESP_LOGI(TAG, "Successfully unpacked lighting data: mode=%d, speed=%d, colors=%zu",
+                                 static_cast<int>(temp_data.mode), temp_data.speed, temp_data.colors.size());
+                        // Update cached data in LightingService
+                        LightingService::getInstance()->_current_data = temp_data;
+                        ESP_LOGI(TAG, "Successfully read lighting data from device");
+                        
+                        // Invoke callback if provided
+                        if (async_data->callback && *async_data->callback) {
+                            (*async_data->callback)(temp_data);
+                        }
+                    } else {
+                        ESP_LOGE(TAG, "Failed to unpack lighting data");
+                    }
+                    
+                    delete[] async_data->buffer;
+                    delete async_data;
+                }, async_data);
             }
-            
-            cJSON *r_item = cJSON_GetObjectItem(color_obj, "r");
-            cJSON *g_item = cJSON_GetObjectItem(color_obj, "g");
-            cJSON *b_item = cJSON_GetObjectItem(color_obj, "b");
-            
-            if (r_item && g_item && b_item && 
-                cJSON_IsNumber(r_item) && cJSON_IsNumber(g_item) && cJSON_IsNumber(b_item)) {
-                RGBColor color(
-                    (uint8_t)std::clamp(r_item->valueint, 0, 255),
-                    (uint8_t)std::clamp(g_item->valueint, 0, 255),
-                    (uint8_t)std::clamp(b_item->valueint, 0, 255)
-                );
-                data->colors.push_back(color);
-            }
-        }
+        });
+    
+    if (!request_sent) {
+        ESP_LOGE(TAG, "Failed to initiate read request");
+        return false;
     }
     
-    cJSON_Delete(root);
+    ESP_LOGI(TAG, "Read request sent, callback will process data when response arrives");
     
-    ESP_LOGI(TAG, "Parsed lighting data: mode=%s, speed=%d, colors=%zu",
-             modeToString(data->mode), data->speed, data->colors.size());
+    // Copy cached data to output parameter (caller can use this immediately)
+    if (data) {
+        *data = _current_data;
+    }
     
     return true;
 }
