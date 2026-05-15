@@ -116,6 +116,14 @@ private:
      */
     void reorderColor(int from_index, int to_index);
 
+    /**
+     * @brief Save current lighting data to the device
+     * 
+     * Collects the current mode, speed, and colors and writes them
+     * to the ABF2 characteristic via the lighting service
+     */
+    void saveLightingDataToDevice();
+
     lv_obj_t *_container;
     lv_obj_t *_status_label;
     lv_obj_t *_add_color_btn;
@@ -129,6 +137,7 @@ private:
     int _current_speed;
     int _last_reorder_from_index;  // Track last reorder indices to prevent rapid re-triggering
     int _last_reorder_to_index;
+    bool _loading_from_device;  // Flag to prevent saving during initial load
 };
 
 } // namespace esp_brookesia::apps::screens
