@@ -11,6 +11,7 @@
 #endif
 #define ESP_UTILS_LOG_TAG "BS:ScanScreen"
 #include "esp_lib_utils.h"
+#include <cstring>
 
 namespace esp_brookesia::apps::screens {
 
@@ -117,6 +118,17 @@ ScanScreen::~ScanScreen()
 {
     // LVGL objects are automatically cleaned up when parent is deleted
     // No need to explicitly delete child objects
+}
+
+void ScanScreen::setConnectedDevice(const char *address)
+{
+    if (address && strlen(address) > 0) {
+        _connected_device_address = address;
+        ESP_UTILS_LOGD("Connected device set to: %s", address);
+    } else {
+        _connected_device_address.clear();
+        ESP_UTILS_LOGD("Connected device cleared");
+    }
 }
 
 } // namespace esp_brookesia::apps::screens

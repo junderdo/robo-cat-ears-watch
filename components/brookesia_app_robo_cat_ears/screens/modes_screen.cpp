@@ -19,6 +19,8 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
     , _cancel_btn(nullptr)
     , _ok_btn(nullptr)
     , _selected_mode_btn(nullptr)
+    , _speed_debounce_timer(nullptr)
+    , _initial_speed(50)
     , _on_mode_selected(nullptr)
     , _on_confirmed(nullptr)
     , _on_speed_changed(nullptr)
@@ -29,6 +31,10 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
     for (int i = 0; i < 5; i++) {
         _mode_buttons[i] = nullptr;
     }
+    
+    // Initialize initial mode to "Solid"
+    strncpy(_initial_mode, "Solid", sizeof(_initial_mode) - 1);
+    _initial_mode[sizeof(_initial_mode) - 1] = '\0';
     
     // Create full-screen container (modal overlay)
     _container = lv_obj_create(parent);
@@ -111,13 +117,28 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
     lv_slider_set_range(_speed_slider, 1, 100);
     lv_slider_set_value(_speed_slider, 50, LV_ANIM_OFF);
 
-    // Add speed change handler
+    // Add speed change handler with debouncing
     lv_obj_add_event_cb(_speed_slider, [](lv_event_t *e) {
         ModesScreen *screen = (ModesScreen *)lv_event_get_user_data(e);
-        if (screen && screen->_on_speed_changed) {
-            int speed = lv_slider_get_value(screen->_speed_slider);
-            screen->_on_speed_changed(speed);
+        if (!screen) return;
+        
+        // Delete existing timer if it exists
+        if (screen->_speed_debounce_timer) {
+            lv_timer_del(screen->_speed_debounce_timer);
+            screen->_speed_debounce_timer = nullptr;
         }
+        
+        // Create a new timer that will fire after 300ms
+        screen->_speed_debounce_timer = lv_timer_create([](lv_timer_t *timer) {
+            ModesScreen *screen = (ModesScreen *)lv_timer_get_user_data(timer);
+            if (screen && screen->_on_speed_changed) {
+                int speed = lv_slider_get_value(screen->_speed_slider);
+                screen->_on_speed_changed(speed);
+            }
+            // Timer is automatically deleted after one-shot execution
+            screen->_speed_debounce_timer = nullptr;
+        }, 300, screen);
+        lv_timer_set_repeat_count(screen->_speed_debounce_timer, 1);  // One-shot timer
     }, LV_EVENT_VALUE_CHANGED, this);
 
     // Create button container at bottom
@@ -142,6 +163,9 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
     lv_obj_add_event_cb(_cancel_btn, [](lv_event_t *e) {
         ModesScreen *screen = (ModesScreen *)lv_event_get_user_data(e);
         if (screen) {
+            // Restore initial state
+            screen->setMode(screen->_initial_mode);
+            screen->setSpeed(screen->_initial_speed);
             screen->hide();
         }
     }, LV_EVENT_CLICKED, this);
@@ -185,6 +209,12 @@ void ModesScreen::updateModeButtonStates(lv_obj_t *selected_btn)
 
 ModesScreen::~ModesScreen()
 {
+    // Clean up debounce timer if it exists
+    if (_speed_debounce_timer) {
+        lv_timer_del(_speed_debounce_timer);
+        _speed_debounce_timer = nullptr;
+    }
+    
     if (_container) {
         lv_obj_del(_container);
         _container = nullptr;
@@ -194,6 +224,19 @@ ModesScreen::~ModesScreen()
 void ModesScreen::show()
 {
     if (_container) {
+        // Capture current state before showing modal
+        if (_selected_mode_btn) {
+            lv_obj_t *label = lv_obj_get_child(_selected_mode_btn, 0);
+            const char *current_mode = lv_label_get_text(label);
+            if (current_mode) {
+                strncpy(_initial_mode, current_mode, sizeof(_initial_mode) - 1);
+                _initial_mode[sizeof(_initial_mode) - 1] = '\0';
+            }
+        }
+        if (_speed_slider) {
+            _initial_speed = lv_slider_get_value(_speed_slider);
+        }
+        
         lv_obj_clear_flag(_container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_move_foreground(_container);
         

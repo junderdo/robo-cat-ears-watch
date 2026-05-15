@@ -245,6 +245,7 @@ bool RoboCatEars::run(void)
         // Connection status callback
         _bluetooth_service->setConnectionStatusCallback([this](bool connected, const std::string &device_name, const std::string &address) {
             updateConnectionStatus();
+            updateDeviceList();  // Refresh device list to update highlighting
             
             // Auto-switch to animate screen on successful connection
             if (connected) {
@@ -349,9 +350,13 @@ void RoboCatEars::updateConnectionStatus()
         if (connected) {
             // Connected state
             std::string device_name = app->_bluetooth_service->getConnectedDeviceName();
+            std::string address = app->_bluetooth_service->getConnectedAddress();
             std::string status_text = "Connected\n" + device_name;
             lv_label_set_text(app->_scan_screen->getStatusLabel(), status_text.c_str());
             lv_obj_set_style_text_color(app->_scan_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
+            
+            // Update connected device for highlighting in device list
+            app->_scan_screen->setConnectedDevice(address.c_str());
             
             // Update animate screen status label too
             lv_label_set_text(app->_animate_screen->getStatusLabel(), status_text.c_str());
@@ -369,6 +374,9 @@ void RoboCatEars::updateConnectionStatus()
             // Disconnected state
             lv_label_set_text(app->_scan_screen->getStatusLabel(), "Not connected");
             lv_obj_set_style_text_color(app->_scan_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
+            
+            // Clear connected device for device list
+            app->_scan_screen->setConnectedDevice(nullptr);
             
             // Update animate screen status label too
             lv_label_set_text(app->_animate_screen->getStatusLabel(), "Not connected");
@@ -440,15 +448,31 @@ void RoboCatEars::updateDeviceList()
 
             // Add devices to the list
             for (const auto &device : sorted_devices) {
+                // Check if this device is connected
+                const char *connected_addr = app->_scan_screen->getConnectedDevice();
+                bool is_connected = (connected_addr && strlen(connected_addr) > 0 && 
+                                   device.address == connected_addr);
+                
                 char label[128];
-                snprintf(label, sizeof(label), "%s\n%s (RSSI: %d)",
-                        device.name.c_str(), device.address.c_str(), device.rssi);
+                if (is_connected) {
+                    snprintf(label, sizeof(label), "%s\n%s (RSSI: %d)\nCONNECTED",
+                            device.name.c_str(), device.address.c_str(), device.rssi);
+                } else {
+                    snprintf(label, sizeof(label), "%s\n%s (RSSI: %d)",
+                            device.name.c_str(), device.address.c_str(), device.rssi);
+                }
                 
-                lv_obj_t *btn = lv_list_add_btn(device_list, LV_SYMBOL_BLUETOOTH, label);
+                const char *icon = is_connected ? LV_SYMBOL_OK : LV_SYMBOL_BLUETOOTH;
+                lv_obj_t *btn = lv_list_add_btn(device_list, icon, label);
                 
-                // Make list items larger
-                lv_obj_set_height(btn, 80);
+                // Make list items larger (more height if connected for extra text)
+                lv_obj_set_height(btn, is_connected ? 100 : 80);
                 lv_obj_set_style_text_font(btn, &lv_font_montserrat_18, 0);
+                
+                // Highlight connected device with different background color
+                if (is_connected) {
+                    lv_obj_set_style_bg_color(btn, lv_color_hex(0x005500), 0);  // Dark green background
+                }
                 
                 // Color code by signal strength: green (good) / orange (medium) / red (poor)
                 lv_color_t signal_color;
