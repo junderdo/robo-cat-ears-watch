@@ -45,7 +45,7 @@ AnimateScreen::AnimateScreen(lv_obj_t *parent_screen,
 
     // Create 4 buttons in a 2x2 grid
     const char *button_labels[] = {"Happy :)", "Sad :(", "Wiggle", "Radar"};
-    const char *button_commands[] = {"DA1", "DA2", "DA3", "DA4"};
+    const char *button_commands[] = {"1", "2", "3", "4"};  // Commands to send for each button
 
     for (int i = 0; i < 4; i++) {
         int row = i / 2;
