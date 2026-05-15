@@ -21,6 +21,45 @@ static const char *TAG = "BluetoothService";
 
 namespace robo_cat_ears {
 
+// DataPacket implementation
+std::string DataPacket::pack() const
+{
+    std::string packed;
+    packed.reserve(1 + data.length());  // type byte + data
+    
+    // Pack type byte
+    packed.push_back(static_cast<uint8_t>(type));
+    
+    // Pack data
+    packed.append(data);
+    
+    return packed;
+}
+
+bool DataPacket::unpack(const std::string &packed, DataPacket &packet)
+{
+    if (packed.empty()) {
+        return false;
+    }
+    
+    // Unpack type byte
+    packet.type = static_cast<DataType>(packed[0]);
+    
+    // Validate type
+    if (packet.type != DataType::ANIMATION && packet.type != DataType::LIGHTING) {
+        return false;
+    }
+    
+    // Unpack data (rest of the string)
+    if (packed.length() > 1) {
+        packet.data = packed.substr(1);
+    } else {
+        packet.data = "";
+    }
+    
+    return true;
+}
+
 BluetoothService *BluetoothService::_instance = nullptr;
 
 BluetoothService *BluetoothService::getInstance()
@@ -41,7 +80,6 @@ BluetoothService::BluetoothService()
     , _conn_id(0)
     , _gattc_if(ESP_GATT_IF_NONE)
     , _char_handle_abf1(0)
-    , _char_handle_abf2(0)
     , _service_discovered(false)
     , _last_connected_address("")
     , _last_connected_address_type(BLE_ADDR_TYPE_PUBLIC)
@@ -167,6 +205,13 @@ bool BluetoothService::init()
                 // Save to NVS for auto-reconnect
                 service->saveLastConnectedDevice();
                 
+                // Request MTU negotiation for better throughput
+                ESP_LOGI(TAG, "Requesting MTU negotiation");
+                esp_err_t mtu_ret = esp_ble_gattc_send_mtu_req(gattc_if, param->open.conn_id);
+                if (mtu_ret != ESP_OK) {
+                    ESP_LOGW(TAG, "MTU request failed: %s", esp_err_to_name(mtu_ret));
+                }
+                
                 // Start service discovery
                 ESP_LOGI(TAG, "Starting service search");
                 esp_ble_gattc_search_service(gattc_if, param->open.conn_id, nullptr);
@@ -189,7 +234,6 @@ bool BluetoothService::init()
             service->_connected_device_name = "";
             service->_connected_address_type = BLE_ADDR_TYPE_PUBLIC;
             service->_char_handle_abf1 = 0;
-            service->_char_handle_abf2 = 0;
             service->_service_discovered = false;
             
             // Notify connection status via callback
@@ -201,13 +245,10 @@ bool BluetoothService::init()
             if (param->search_cmpl.status == ESP_GATT_OK) {
                 ESP_LOGI(TAG, "Service search complete");
                 
-                // Target characteristics: ABF1 (animation) and ABF2 (lighting)
+                // Target characteristic: ABF1 (unified data transmission)
                 const uint16_t target_uuid16_abf1 = 0xABF1;
-                const uint16_t target_uuid16_abf2 = 0xABF2;
                 uint8_t target_uuid128_abf1[16] = {0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 
                                                     0x00, 0x10, 0x00, 0x00, 0xF1, 0xAB, 0x00, 0x00};
-                uint8_t target_uuid128_abf2[16] = {0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 
-                                                    0x00, 0x10, 0x00, 0x00, 0xF2, 0xAB, 0x00, 0x00};
                 
                 // Get all characteristics
                 uint16_t count = 0;
@@ -232,7 +273,7 @@ bool BluetoothService::init()
                                                             0);
                         
                         if (status == ESP_GATT_OK) {
-                            // Display all characteristics and search for ABF1 and ABF2
+                            // Display all characteristics and search for ABF1
                             for (int i = 0; i < count; i++) {
                                 if (char_elems[i].uuid.len == ESP_UUID_LEN_16) {
                                     ESP_LOGI(TAG, "Char %d: UUID16=0x%04X, handle=0x%04x, properties=0x%02x",
@@ -240,15 +281,10 @@ bool BluetoothService::init()
                                                    char_elems[i].char_handle,
                                                    char_elems[i].properties);
                                     
-                                    // Check for ABF1 (animation)
+                                    // Check for ABF1 (unified data transmission)
                                     if (char_elems[i].uuid.uuid.uuid16 == target_uuid16_abf1) {
                                         service->_char_handle_abf1 = char_elems[i].char_handle;
-                                        ESP_LOGI(TAG, ">>> Found ABF1 (animation) characteristic, handle: 0x%04x <<<", service->_char_handle_abf1);
-                                    }
-                                    // Check for ABF2 (lighting)
-                                    else if (char_elems[i].uuid.uuid.uuid16 == target_uuid16_abf2) {
-                                        service->_char_handle_abf2 = char_elems[i].char_handle;
-                                        ESP_LOGI(TAG, ">>> Found ABF2 (lighting) characteristic, handle: 0x%04x <<<", service->_char_handle_abf2);
+                                        ESP_LOGI(TAG, ">>> Found ABF1 (data transmission) characteristic, handle: 0x%04x <<<", service->_char_handle_abf1);
                                     }
                                 } else if (char_elems[i].uuid.len == ESP_UUID_LEN_128) {
                                     uint8_t *u = char_elems[i].uuid.uuid.uuid128;
@@ -263,12 +299,7 @@ bool BluetoothService::init()
                                     // Check for ABF1 (128-bit UUID)
                                     if (memcmp(char_elems[i].uuid.uuid.uuid128, target_uuid128_abf1, 16) == 0) {
                                         service->_char_handle_abf1 = char_elems[i].char_handle;
-                                        ESP_LOGI(TAG, ">>> Found ABF1 (animation) characteristic UUID128, handle: 0x%04x <<<", service->_char_handle_abf1);
-                                    }
-                                    // Check for ABF2 (128-bit UUID)
-                                    else if (memcmp(char_elems[i].uuid.uuid.uuid128, target_uuid128_abf2, 16) == 0) {
-                                        service->_char_handle_abf2 = char_elems[i].char_handle;
-                                        ESP_LOGI(TAG, ">>> Found ABF2 (lighting) characteristic UUID128, handle: 0x%04x <<<", service->_char_handle_abf2);
+                                        ESP_LOGI(TAG, ">>> Found ABF1 (data transmission) characteristic UUID128, handle: 0x%04x <<<", service->_char_handle_abf1);
                                     }
                                 }
                             }
@@ -277,16 +308,23 @@ bool BluetoothService::init()
                     }
                 }
                 
-                // Mark service as discovered if at least ABF1 was found
+                // Mark service as discovered if ABF1 was found
                 if (service->_char_handle_abf1 != 0) {
                     service->_service_discovered = true;
-                    ESP_LOGI(TAG, "Service discovery complete - ABF1: 0x%04x, ABF2: 0x%04x",
-                                   service->_char_handle_abf1, service->_char_handle_abf2);
+                    ESP_LOGI(TAG, "Service discovery complete - ABF1: 0x%04x",
+                                   service->_char_handle_abf1);
                 } else {
                     ESP_LOGW(TAG, "ABF1 characteristic not found");
                 }
             } else {
                 ESP_LOGE(TAG, "Service search failed, status: %d", param->search_cmpl.status);
+            }
+            break;
+        case ESP_GATTC_CFG_MTU_EVT:
+            if (param->cfg_mtu.status == ESP_GATT_OK) {
+                ESP_LOGI(TAG, "MTU configured successfully: %d bytes", param->cfg_mtu.mtu);
+            } else {
+                ESP_LOGW(TAG, "MTU configuration failed, status: %d", param->cfg_mtu.status);
             }
             break;
         default:
@@ -330,7 +368,6 @@ void BluetoothService::deinit()
         _connected_device_name = "";
         _connected_address_type = BLE_ADDR_TYPE_PUBLIC;
         _char_handle_abf1 = 0;
-        _char_handle_abf2 = 0;
         _service_discovered = false;
     }
 
@@ -554,40 +591,34 @@ void BluetoothService::disconnect()
     }
 }
 
-bool BluetoothService::writeCharacteristic(const std::string &data)
-{
-    // Default to ABF1 (animation control) for backward compatibility
-    return writeCharacteristic(_char_handle_abf1, data);
-}
-
-bool BluetoothService::writeCharacteristic(uint16_t char_handle, const std::string &data)
+bool BluetoothService::writeDataPacket(const DataPacket &packet)
 {
     if (!_connected || _gattc_if == ESP_GATT_IF_NONE) {
         ESP_LOGW(TAG, "Cannot write: not connected");
         return false;
     }
     
-    if (!_service_discovered || char_handle == 0) {
-        ESP_LOGW(TAG, "Cannot write: characteristic not discovered yet (handle=0x%04x)", char_handle);
+    if (!_service_discovered || _char_handle_abf1 == 0) {
+        ESP_LOGW(TAG, "Cannot write: ABF1 characteristic not discovered yet");
         return false;
     }
     
-    // Determine which characteristic we're writing to
-    const char *char_name = "unknown";
-    if (char_handle == _char_handle_abf1) {
-        char_name = "ABF1 (animation)";
-    } else if (char_handle == _char_handle_abf2) {
-        char_name = "ABF2 (lighting)";
-    }
+    // Pack the data packet
+    std::string packed_data = packet.pack();
     
-    ESP_LOGI(TAG, "Writing to characteristic %s (0x%04x): %s", char_name, char_handle, data.c_str());
+    // Determine data type name for logging
+    const char *type_name = (packet.type == DataType::ANIMATION) ? "ANIMATION" : "LIGHTING";
     
+    ESP_LOGI(TAG, "Writing DataPacket to ABF1 (0x%04x): type=%s, data_length=%zu", 
+             _char_handle_abf1, type_name, packet.data.length());
+    
+    // Write packed data to ABF1 characteristic
     esp_err_t ret = esp_ble_gattc_write_char(
         _gattc_if,
         _conn_id,
-        char_handle,
-        data.length(),
-        (uint8_t *)data.c_str(),
+        _char_handle_abf1,
+        packed_data.length(),
+        (uint8_t *)packed_data.c_str(),
         ESP_GATT_WRITE_TYPE_NO_RSP,
         ESP_GATT_AUTH_REQ_NONE
     );

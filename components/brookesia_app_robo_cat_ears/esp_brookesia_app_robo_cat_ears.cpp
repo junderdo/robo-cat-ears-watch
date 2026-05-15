@@ -176,7 +176,10 @@ bool RoboCatEars::run(void)
         [this](const std::string& command) {
             ESP_UTILS_LOGI("Command button clicked: %s", command.c_str());
             if (_bluetooth_service) {
-                _bluetooth_service->writeCharacteristic(command);
+                robo_cat_ears::DataPacket packet;
+                packet.type = robo_cat_ears::DataType::ANIMATION;
+                packet.data = command;
+                _bluetooth_service->writeDataPacket(packet);
             }
         }
     );

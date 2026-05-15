@@ -106,17 +106,35 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     // Set up callbacks
     _modes_screen->setOnModeSelected([this](const char *mode) {
         ESP_UTILS_LOGI("Mode selected: %s", mode);
-        setMode(mode);  // Use setMode to ensure saving happens
+        
+        // Check if mode actually changed
+        bool changed = (_current_mode != mode);
+        _current_mode = mode;
+        updateModesButtonLabel();
+        
+        // Save to device if mode changed
+        if (changed) {
+            saveLightingDataToDevice();
+        }
     });
     
     _modes_screen->setOnSpeedChanged([this](int speed) {
         ESP_UTILS_LOGI("Speed changed: %d", speed);
-        setSpeed(speed);  // Use setSpeed to ensure saving happens
+        
+        // Check if speed actually changed
+        bool changed = (_current_speed != speed);
+        _current_speed = speed;
+        updateModesButtonLabel();
+        
+        // Save to device if speed changed
+        if (changed) {
+            saveLightingDataToDevice();
+        }
     });
     
     _modes_screen->setOnConfirmed([this]() {
         ESP_UTILS_LOGI("Modes confirmed - Mode: %s, Speed: %d", _current_mode.c_str(), _current_speed);
-        // Mode and speed are already saved via setMode/setSpeed callbacks above
+        // Mode and speed are already saved via callbacks above
     });
     
     // Event handler for modes button - show modal
@@ -551,9 +569,9 @@ void GlowScreen::loadLightingData()
         return;
     }
     
-    // Check if ABF2 characteristic is available
-    if (bt_service->getCharHandleABF2() == 0) {
-        ESP_UTILS_LOGW("ABF2 characteristic not discovered, skipping lighting data load");
+    // Check if ABF1 characteristic is available
+    if (bt_service->getCharHandleABF1() == 0) {
+        ESP_UTILS_LOGW("ABF1 characteristic not discovered, skipping lighting data load");
         return;
     }
     
@@ -675,9 +693,9 @@ void GlowScreen::saveLightingDataToDevice()
         return;
     }
     
-    // Check if ABF2 characteristic is available
-    if (bt_service->getCharHandleABF2() == 0) {
-        ESP_UTILS_LOGW("ABF2 characteristic not discovered, skipping save");
+    // Check if ABF1 characteristic is available
+    if (bt_service->getCharHandleABF1() == 0) {
+        ESP_UTILS_LOGW("ABF1 characteristic not discovered, skipping save");
         return;
     }
     
@@ -685,6 +703,12 @@ void GlowScreen::saveLightingDataToDevice()
     robo_cat_ears::LightingService *lighting_service = robo_cat_ears::LightingService::getInstance();
     if (!lighting_service) {
         ESP_UTILS_LOGE("Failed to get lighting service instance");
+        return;
+    }
+    
+    // Initialize lighting service if not already done
+    if (!lighting_service->init()) {
+        ESP_UTILS_LOGE("Failed to initialize lighting service");
         return;
     }
     

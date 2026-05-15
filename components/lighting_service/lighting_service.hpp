@@ -47,12 +47,31 @@ struct LightingData {
     std::vector<RGBColor> colors;  // Max 32 colors
     
     LightingData() : mode(LightingMode::SOLID), speed(50) {}
+    
+    /**
+     * @brief Pack lighting data into binary format for efficient BLE transmission
+     * 
+     * Format: [mode:1byte][speed:1byte][num_colors:1byte][color1_RGB:3bytes]...[colorN_RGB:3bytes]
+     * Max size: 1 + 1 + 1 + (32 * 3) = 99 bytes
+     * 
+     * @return Packed binary string
+     */
+    std::string pack() const;
+    
+    /**
+     * @brief Unpack binary data into LightingData structure
+     * 
+     * @param packed Binary packed string
+     * @param data Output LightingData structure
+     * @return true if unpacking successful, false otherwise
+     */
+    static bool unpack(const std::string &packed, LightingData &data);
 };
 
 /**
  * @brief Lighting service class
  * 
- * Manages lighting data and communicates with the Bluetooth characteristic ABF2
+ * Manages lighting data and communicates with the Bluetooth characteristic ABF1 using binary packed format
  */
 class LightingService {
 public:
@@ -74,7 +93,7 @@ public:
     void deinit();
     
     /**
-     * @brief Write lighting data to the ABF2 characteristic
+     * @brief Write lighting data to the ABF1 characteristic using binary packed format
      * 
      * @param data Pointer to lighting data structure
      * @return true if successful, false otherwise
@@ -82,7 +101,7 @@ public:
     bool writeLightingData(const LightingData *data);
     
     /**
-     * @brief Read lighting data from the ABF2 characteristic
+     * @brief Read lighting data from the ABF1 characteristic
      * 
      * @param data Pointer to lighting data structure to populate
      * @return true if successful, false otherwise
@@ -90,7 +109,7 @@ public:
     bool readLightingData(LightingData *data);
     
     /**
-     * @brief Convert lighting data to JSON string
+     * @brief Convert lighting data to JSON string (legacy/debugging)
      * 
      * @param data Pointer to lighting data structure
      * @return JSON string representation
@@ -98,7 +117,7 @@ public:
     std::string lightingDataToJson(const LightingData *data);
     
     /**
-     * @brief Parse JSON string to lighting data
+     * @brief Parse JSON string to lighting data (legacy/debugging)
      * 
      * @param json JSON string to parse
      * @param data Pointer to lighting data structure to populate

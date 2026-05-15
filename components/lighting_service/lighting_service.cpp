@@ -15,6 +15,81 @@ static const char *TAG = "LightingService";
 
 namespace robo_cat_ears {
 
+// LightingData binary pack/unpack implementation
+std::string LightingData::pack() const
+{
+    std::string packed;
+    packed.reserve(3 + (colors.size() * 3));  // mode + speed + num_colors + RGB data
+    
+    // Pack mode (1 byte)
+    packed.push_back(static_cast<uint8_t>(mode));
+    
+    // Pack speed (1 byte)
+    packed.push_back(speed);
+    
+    // Pack number of colors (1 byte, clamped to max 32)
+    uint8_t num_colors = static_cast<uint8_t>(std::min(colors.size(), size_t(32)));
+    packed.push_back(num_colors);
+    
+    // Pack each color as RGB (3 bytes each)
+    for (size_t i = 0; i < num_colors; i++) {
+        packed.push_back(colors[i].r);
+        packed.push_back(colors[i].g);
+        packed.push_back(colors[i].b);
+    }
+    
+    return packed;
+}
+
+bool LightingData::unpack(const std::string &packed, LightingData &data)
+{
+    // Minimum size: mode + speed + num_colors = 3 bytes
+    if (packed.length() < 3) {
+        return false;
+    }
+    
+    size_t offset = 0;
+    
+    // Unpack mode (1 byte)
+    data.mode = static_cast<LightingMode>(packed[offset++]);
+    
+    // Validate mode
+    if (data.mode < LightingMode::SOLID || data.mode > LightingMode::RAIN) {
+        return false;
+    }
+    
+    // Unpack speed (1 byte)
+    data.speed = packed[offset++];
+    if (data.speed < 1 || data.speed > 100) {
+        data.speed = std::clamp(data.speed, uint8_t(1), uint8_t(100));
+    }
+    
+    // Unpack number of colors (1 byte)
+    uint8_t num_colors = packed[offset++];
+    if (num_colors > 32) {
+        return false;  // Invalid color count
+    }
+    
+    // Verify we have enough data for all colors
+    size_t expected_size = 3 + (num_colors * 3);
+    if (packed.length() != expected_size) {
+        return false;
+    }
+    
+    // Unpack colors (3 bytes each: RGB)
+    data.colors.clear();
+    data.colors.reserve(num_colors);
+    
+    for (uint8_t i = 0; i < num_colors; i++) {
+        uint8_t r = packed[offset++];
+        uint8_t g = packed[offset++];
+        uint8_t b = packed[offset++];
+        data.colors.emplace_back(r, g, b);
+    }
+    
+    return true;
+}
+
 LightingService *LightingService::_instance = nullptr;
 
 LightingService *LightingService::getInstance()
@@ -85,14 +160,15 @@ bool LightingService::writeLightingData(const LightingData *data)
         return false;
     }
     
-    // Convert to JSON
-    std::string json = lightingDataToJson(data);
-    if (json.empty()) {
-        ESP_LOGE(TAG, "Failed to convert lighting data to JSON");
+    // Pack to binary format
+    std::string packed_data = data->pack();
+    if (packed_data.empty()) {
+        ESP_LOGE(TAG, "Failed to pack lighting data");
         return false;
     }
     
-    ESP_LOGI(TAG, "Writing lighting data to ABF2: %s", json.c_str());
+    ESP_LOGI(TAG, "Writing lighting data via DataPacket: mode=%d, speed=%d, colors=%zu, packed_size=%zu bytes",
+             static_cast<int>(data->mode), data->speed, data->colors.size(), packed_data.size());
     
     // Get Bluetooth service instance
     BluetoothService *bt_service = BluetoothService::getInstance();
@@ -107,16 +183,20 @@ bool LightingService::writeLightingData(const LightingData *data)
         return false;
     }
     
-    // Get ABF2 characteristic handle
-    uint16_t abf2_handle = bt_service->getCharHandleABF2();
-    if (abf2_handle == 0) {
-        ESP_LOGE(TAG, "ABF2 characteristic not discovered");
+    // Check if ABF1 characteristic is discovered
+    if (bt_service->getCharHandleABF1() == 0) {
+        ESP_LOGE(TAG, "ABF1 characteristic not discovered");
         return false;
     }
     
-    // Write to ABF2 characteristic
-    if (!bt_service->writeCharacteristic(abf2_handle, json)) {
-        ESP_LOGE(TAG, "Failed to write to ABF2 characteristic");
+    // Create DataPacket with LIGHTING type
+    DataPacket packet;
+    packet.type = DataType::LIGHTING;
+    packet.data = packed_data;
+    
+    // Write DataPacket to ABF1 characteristic
+    if (!bt_service->writeDataPacket(packet)) {
+        ESP_LOGE(TAG, "Failed to write lighting DataPacket");
         return false;
     }
     
@@ -145,8 +225,8 @@ bool LightingService::readLightingData(LightingData *data)
         return false;
     }
     
-    // TODO: Implement read from ABF2 characteristic
-    // This will need to be added to bluetooth_service
+    // TODO: Implement read from ABF1 characteristic
+    // This will need notification/indication support in bluetooth_service
     // For now, return the cached data
     ESP_LOGW(TAG, "Read from characteristic not yet implemented, returning cached data");
     *data = _current_data;
@@ -167,10 +247,10 @@ std::string LightingService::lightingDataToJson(const LightingData *data)
     }
     
     // Add mode
-    cJSON_AddStringToObject(root, "mode", modeToString(data->mode));
+    cJSON_AddStringToObject(root, "m", modeToString(data->mode));
     
     // Add speed
-    cJSON_AddNumberToObject(root, "speed", data->speed);
+    cJSON_AddNumberToObject(root, "s", data->speed);
     
     // Add colors array
     cJSON *colors_array = cJSON_CreateArray();
@@ -191,7 +271,7 @@ std::string LightingService::lightingDataToJson(const LightingData *data)
         cJSON_AddItemToArray(colors_array, color_obj);
     }
     
-    cJSON_AddItemToObject(root, "colors", colors_array);
+    cJSON_AddItemToObject(root, "c", colors_array);
     
     // Convert to string
     char *json_str = cJSON_PrintUnformatted(root);

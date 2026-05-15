@@ -22,6 +22,42 @@ struct BleDevice {
 };
 
 /**
+ * @brief Data type enumeration for packed data transmission
+ */
+enum class DataType : uint8_t {
+    ANIMATION = 0x01,
+    LIGHTING = 0x02
+};
+
+/**
+ * @brief Packed data structure for transmission over ABF1 characteristic
+ * 
+ * This structure packs a type byte followed by the data payload.
+ * Format: [type:1byte][data:variable]
+ * Max total size: 512 bytes (BLE MTU limit)
+ */
+struct DataPacket {
+    DataType type;
+    std::string data;  // Payload data
+    
+    /**
+     * @brief Pack the data packet into a byte array for transmission
+     * 
+     * @return Packed byte string ready for BLE transmission
+     */
+    std::string pack() const;
+    
+    /**
+     * @brief Unpack a byte array into a DataPacket
+     * 
+     * @param packed Packed byte string from BLE
+     * @param packet Output packet structure
+     * @return true if unpacking successful, false otherwise
+     */
+    static bool unpack(const std::string &packed, DataPacket &packet);
+};
+
+/**
  * @brief Bluetooth LE service for scanning, connecting, and communicating with BLE devices
  */
 class BluetoothService {
@@ -82,31 +118,17 @@ public:
     void disconnect();
 
     /**
-     * @brief Write data to the ABF1 characteristic (animation control)
+     * @brief Write a data packet to the ABF1 characteristic
      *
-     * @param data Data string to send
+     * @param packet Data packet containing type and data
      * @return true if write initiated successfully, otherwise false
      */
-    bool writeCharacteristic(const std::string &data);
+    bool writeDataPacket(const DataPacket &packet);
 
     /**
-     * @brief Write data to a specific BLE characteristic by handle
-     *
-     * @param char_handle Characteristic handle to write to
-     * @param data Data string to send
-     * @return true if write initiated successfully, otherwise false
-     */
-    bool writeCharacteristic(uint16_t char_handle, const std::string &data);
-
-    /**
-     * @brief Get the ABF1 characteristic handle (animation)
+     * @brief Get the ABF1 characteristic handle
      */
     uint16_t getCharHandleABF1() const { return _char_handle_abf1; }
-
-    /**
-     * @brief Get the ABF2 characteristic handle (lighting)
-     */
-    uint16_t getCharHandleABF2() const { return _char_handle_abf2; }
 
     /**
      * @brief Check if services are discovered
@@ -224,8 +246,7 @@ private:
     esp_ble_addr_type_t _connected_address_type;
     uint16_t _conn_id;
     esp_gatt_if_t _gattc_if;
-    uint16_t _char_handle_abf1;  // Animation control characteristic
-    uint16_t _char_handle_abf2;  // Lighting control characteristic
+    uint16_t _char_handle_abf1;  // Unified data transmission characteristic
     bool _service_discovered;
 
     // Auto-reconnect support

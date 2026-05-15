@@ -231,10 +231,8 @@ void ModesScreen::setMode(const char *mode)
         if (_mode_buttons[i] && strcmp(mode_names[i], mode) == 0) {
             updateModeButtonStates(_mode_buttons[i]);
             
-            // Trigger callback if set
-            if (_on_mode_selected) {
-                _on_mode_selected(mode);
-            }
+            // Don't trigger callback when setting programmatically
+            // Callbacks should only be triggered by user interaction (button clicks)
             break;
         }
     }
@@ -245,10 +243,8 @@ void ModesScreen::setSpeed(int speed)
     if (_speed_slider && speed >= 1 && speed <= 100) {
         lv_slider_set_value(_speed_slider, speed, LV_ANIM_OFF);
         
-        // Trigger callback if set
-        if (_on_speed_changed) {
-            _on_speed_changed(speed);
-        }
+        // Don't trigger callback when setting programmatically
+        // Callbacks should only be triggered by user interaction (slider changes)
     }
 }
 
