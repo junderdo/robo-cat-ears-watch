@@ -21,6 +21,45 @@ static const char *TAG = "BluetoothService";
 
 namespace robo_cat_ears {
 
+// DataPacket implementation
+std::string DataPacket::pack() const
+{
+    std::string packed;
+    packed.reserve(1 + data.length());  // type byte + data
+    
+    // Pack type byte
+    packed.push_back(static_cast<uint8_t>(type));
+    
+    // Pack data
+    packed.append(data);
+    
+    return packed;
+}
+
+bool DataPacket::unpack(const std::string &packed, DataPacket &packet)
+{
+    if (packed.empty()) {
+        return false;
+    }
+    
+    // Unpack type byte
+    packet.type = static_cast<DataType>(packed[0]);
+    
+    // Validate type
+    if (packet.type != DataType::ANIMATION && packet.type != DataType::LIGHTING) {
+        return false;
+    }
+    
+    // Unpack data (rest of the string)
+    if (packed.length() > 1) {
+        packet.data = packed.substr(1);
+    } else {
+        packet.data = "";
+    }
+    
+    return true;
+}
+
 BluetoothService *BluetoothService::_instance = nullptr;
 
 BluetoothService *BluetoothService::getInstance()
@@ -40,8 +79,12 @@ BluetoothService::BluetoothService()
     , _connected_address_type(BLE_ADDR_TYPE_PUBLIC)
     , _conn_id(0)
     , _gattc_if(ESP_GATT_IF_NONE)
-    , _char_handle(0)
+    , _char_handle_abf1(0)
+    , _char_properties_abf1(0)
+    , _char_handle_abf2(0)
+    , _char_properties_abf2(0)
     , _service_discovered(false)
+    , _mtu_configured(false)
     , _last_connected_address("")
     , _last_connected_address_type(BLE_ADDR_TYPE_PUBLIC)
     , _last_connected_name("")
@@ -50,6 +93,13 @@ BluetoothService::BluetoothService()
     , _device_list_updated_callback(nullptr)
     , _connection_status_callback(nullptr)
     , _scanning_status_callback(nullptr)
+    , _service_ready_callback(nullptr)
+    , _read_data_callback(nullptr)
+    , _read_pending(false)
+    , _read_complete(false)
+    , _read_success(false)
+    , _read_length(0)
+    , _read_event_count(0)
 {
 }
 
@@ -166,6 +216,13 @@ bool BluetoothService::init()
                 // Save to NVS for auto-reconnect
                 service->saveLastConnectedDevice();
                 
+                // Request MTU negotiation for better throughput
+                ESP_LOGI(TAG, "Requesting MTU negotiation");
+                esp_err_t mtu_ret = esp_ble_gattc_send_mtu_req(gattc_if, param->open.conn_id);
+                if (mtu_ret != ESP_OK) {
+                    ESP_LOGW(TAG, "MTU request failed: %s", esp_err_to_name(mtu_ret));
+                }
+                
                 // Start service discovery
                 ESP_LOGI(TAG, "Starting service search");
                 esp_ble_gattc_search_service(gattc_if, param->open.conn_id, nullptr);
@@ -187,8 +244,12 @@ bool BluetoothService::init()
             service->_connected_address = "";
             service->_connected_device_name = "";
             service->_connected_address_type = BLE_ADDR_TYPE_PUBLIC;
-            service->_char_handle = 0;
+            service->_char_handle_abf1 = 0;
+            service->_char_properties_abf1 = 0;
+            service->_char_handle_abf2 = 0;
+            service->_char_properties_abf2 = 0;
             service->_service_discovered = false;
+            service->_mtu_configured = false;
             
             // Notify connection status via callback
             if (service->_connection_status_callback) {
@@ -197,12 +258,15 @@ bool BluetoothService::init()
             break;
         case ESP_GATTC_SEARCH_CMPL_EVT:
             if (param->search_cmpl.status == ESP_GATT_OK) {
-                ESP_LOGI(TAG, "Service search complete");
+                // NO LOGGING - causes heap corruption in BLE context
                 
-                // Target characteristic: ABF1 (writable command characteristic)
-                const uint16_t target_uuid16 = 0xABF1;
-                uint8_t target_uuid128[16] = {0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 
-                                              0x00, 0x10, 0x00, 0x00, 0xF1, 0xAB, 0x00, 0x00};
+                // Target characteristics: ABF1 (write) and ABF2 (read)
+                const uint16_t target_uuid16_abf1 = 0xABF1;
+                const uint16_t target_uuid16_abf2 = 0xABF2;
+                uint8_t target_uuid128_abf1[16] = {0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 
+                                                    0x00, 0x10, 0x00, 0x00, 0xF1, 0xAB, 0x00, 0x00};
+                uint8_t target_uuid128_abf2[16] = {0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 
+                                                    0x00, 0x10, 0x00, 0x00, 0xF2, 0xAB, 0x00, 0x00};
                 
                 // Get all characteristics
                 uint16_t count = 0;
@@ -214,8 +278,6 @@ bool BluetoothService::init()
                                                                          &count);
                 
                 if (status == ESP_GATT_OK && count > 0) {
-                    ESP_LOGI(TAG, "Found %d characteristics", count);
-                    
                     // Allocate memory for characteristics
                     esp_gattc_char_elem_t *char_elems = (esp_gattc_char_elem_t *)malloc(sizeof(esp_gattc_char_elem_t) * count);
                     if (char_elems) {
@@ -227,35 +289,29 @@ bool BluetoothService::init()
                                                             0);
                         
                         if (status == ESP_GATT_OK) {
-                            // Display all characteristics
+                            // Search for ABF1 and ABF2 characteristics
                             for (int i = 0; i < count; i++) {
                                 if (char_elems[i].uuid.len == ESP_UUID_LEN_16) {
-                                    ESP_LOGI(TAG, "Char %d: UUID16=0x%04X, handle=0x%04x, properties=0x%02x",
-                                                   i, char_elems[i].uuid.uuid.uuid16, 
-                                                   char_elems[i].char_handle,
-                                                   char_elems[i].properties);
-                                    
-                                    // Check if this is our target characteristic (16-bit UUID)
-                                    if (char_elems[i].uuid.uuid.uuid16 == target_uuid16) {
-                                        service->_char_handle = char_elems[i].char_handle;
-                                        service->_service_discovered = true;
-                                        ESP_LOGI(TAG, ">>> Found target characteristic UUID16 ABF1, handle: 0x%04x <<<", service->_char_handle);
+                                    // Check for ABF1 (data receive - write)
+                                    if (char_elems[i].uuid.uuid.uuid16 == target_uuid16_abf1) {
+                                        service->_char_handle_abf1 = char_elems[i].char_handle;
+                                        service->_char_properties_abf1 = char_elems[i].properties;
+                                    }
+                                    // Check for ABF2 (data notify - read)
+                                    else if (char_elems[i].uuid.uuid.uuid16 == target_uuid16_abf2) {
+                                        service->_char_handle_abf2 = char_elems[i].char_handle;
+                                        service->_char_properties_abf2 = char_elems[i].properties;
                                     }
                                 } else if (char_elems[i].uuid.len == ESP_UUID_LEN_128) {
-                                    uint8_t *u = char_elems[i].uuid.uuid.uuid128;
-                                    ESP_LOGI(TAG, "Char %d: UUID128=%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X, handle=0x%04x",
-                                                   i,
-                                                   u[15], u[14], u[13], u[12],
-                                                   u[11], u[10], u[9], u[8],
-                                                   u[7], u[6], u[5], u[4],
-                                                   u[3], u[2], u[1], u[0],
-                                                   char_elems[i].char_handle);
-                                    
-                                    // Check if this is our target characteristic (128-bit UUID)
-                                    if (memcmp(char_elems[i].uuid.uuid.uuid128, target_uuid128, 16) == 0) {
-                                        service->_char_handle = char_elems[i].char_handle;
-                                        service->_service_discovered = true;
-                                        ESP_LOGI(TAG, ">>> Found target characteristic UUID128 ABF1, handle: 0x%04x <<<", service->_char_handle);
+                                    // Check for ABF1 (128-bit UUID)
+                                    if (memcmp(char_elems[i].uuid.uuid.uuid128, target_uuid128_abf1, 16) == 0) {
+                                        service->_char_handle_abf1 = char_elems[i].char_handle;
+                                        service->_char_properties_abf1 = char_elems[i].properties;
+                                    }
+                                    // Check for ABF2 (128-bit UUID)
+                                    else if (memcmp(char_elems[i].uuid.uuid.uuid128, target_uuid128_abf2, 16) == 0) {
+                                        service->_char_handle_abf2 = char_elems[i].char_handle;
+                                        service->_char_properties_abf2 = char_elems[i].properties;
                                     }
                                 }
                             }
@@ -264,11 +320,55 @@ bool BluetoothService::init()
                     }
                 }
                 
-                if (!service->_service_discovered) {
-                    ESP_LOGW(TAG, "Target characteristic ABF1 not found");
+                // Mark service as discovered if both ABF1 and ABF2 were found
+                if (service->_char_handle_abf1 != 0 && service->_char_handle_abf2 != 0) {
+                    service->_service_discovered = true;
+                    
+                    // Only notify service ready when BOTH service discovery AND MTU are complete
+                    if (service->_mtu_configured && service->_service_ready_callback) {
+                        service->_service_ready_callback();
+                    }
                 }
-            } else {
-                ESP_LOGE(TAG, "Service search failed, status: %d", param->search_cmpl.status);
+            }
+            break;
+        case ESP_GATTC_CFG_MTU_EVT:
+            // NO LOGGING - causes heap corruption in BLE context
+            service->_mtu_configured = true;
+            
+            // Only notify service ready when BOTH service discovery AND MTU are complete
+            if (service->_service_discovered && service->_service_ready_callback) {
+                service->_service_ready_callback();
+            }
+            break;
+        case ESP_GATTC_READ_CHAR_EVT:
+            service->_read_event_count++;  // Debug: track that event was received
+            
+            // Only process if this is a response for our pending read request from ABF2
+            if (service->_read_pending && param->read.handle == service->_char_handle_abf2) {
+                if (param->read.status == ESP_GATT_OK && param->read.value_len > 0) {
+                    // Copy to internal buffer - no callbacks, no logging, no allocations
+                    size_t len = (param->read.value_len <= sizeof(service->_read_buffer)) ? 
+                                 param->read.value_len : sizeof(service->_read_buffer);
+                    for (size_t i = 0; i < len; i++) {
+                        service->_read_buffer[i] = param->read.value[i];
+                    }
+                    service->_read_length = len;
+                    service->_read_success = true;
+                } else {
+                    service->_read_success = false;
+                    service->_read_length = 0;
+                }
+                service->_read_complete = true;
+                service->_read_pending = false;
+                
+                // Invoke callback if provided (safe - just gives semaphore)
+                if (service->_read_data_callback) {
+                    DataType type = (service->_read_length > 0) ? 
+                                   static_cast<DataType>(service->_read_buffer[0]) : DataType::LIGHTING;
+                    service->_read_data_callback(service->_read_success, type, 
+                                                service->_read_buffer, service->_read_length);
+                    service->_read_data_callback = nullptr;  // Clear after invoking
+                }
             }
             break;
         default:
@@ -311,8 +411,12 @@ void BluetoothService::deinit()
         _connected_address = "";
         _connected_device_name = "";
         _connected_address_type = BLE_ADDR_TYPE_PUBLIC;
-        _char_handle = 0;
+        _char_handle_abf1 = 0;
+        _char_properties_abf1 = 0;
+        _char_handle_abf2 = 0;
+        _char_properties_abf2 = 0;
         _service_discovered = false;
+        _mtu_configured = false;
     }
 
     // Unregister the GATT client app to clean up state
@@ -535,26 +639,43 @@ void BluetoothService::disconnect()
     }
 }
 
-bool BluetoothService::writeCharacteristic(const std::string &data)
+bool BluetoothService::writeDataPacket(const DataPacket &packet)
 {
     if (!_connected || _gattc_if == ESP_GATT_IF_NONE) {
         ESP_LOGW(TAG, "Cannot write: not connected");
         return false;
     }
     
-    if (!_service_discovered || _char_handle == 0) {
-        ESP_LOGW(TAG, "Cannot write: characteristic not discovered yet");
+    if (!_service_discovered || _char_handle_abf1 == 0) {
+        ESP_LOGW(TAG, "Cannot write: ABF1 characteristic not discovered yet");
         return false;
     }
     
-    ESP_LOGI(TAG, "Writing to characteristic: %s", data.c_str());
+    // Pack the data packet
+    std::string packed_data = packet.pack();
     
+    // Determine data type name for logging
+    const char *type_name = (packet.type == DataType::ANIMATION) ? "ANIMATION" : "LIGHTING";
+    
+    ESP_LOGI(TAG, "Writing DataPacket to ABF1 (0x%04x): type=%s, data_length=%zu, total_length=%zu", 
+             _char_handle_abf1, type_name, packet.data.length(), packed_data.length());
+    
+    // esp_ble_gattc_write_char should copy the data internally, but let's be safe
+    // and keep a local copy on the stack
+    uint8_t write_buffer[512];  // Max MTU size
+    if (packed_data.length() > sizeof(write_buffer)) {
+        ESP_LOGE(TAG, "Data too large: %zu bytes (max %zu)", packed_data.length(), sizeof(write_buffer));
+        return false;
+    }
+    std::memcpy(write_buffer, packed_data.c_str(), packed_data.length());
+    
+    // Write packed data to ABF1 characteristic
     esp_err_t ret = esp_ble_gattc_write_char(
         _gattc_if,
         _conn_id,
-        _char_handle,
-        data.length(),
-        (uint8_t *)data.c_str(),
+        _char_handle_abf1,
+        packed_data.length(),
+        write_buffer,
         ESP_GATT_WRITE_TYPE_NO_RSP,
         ESP_GATT_AUTH_REQ_NONE
     );
@@ -564,6 +685,64 @@ bool BluetoothService::writeCharacteristic(const std::string &data)
         return false;
     }
     
+    ESP_LOGI(TAG, "Write completed successfully");
+    return true;
+}
+
+bool BluetoothService::readDataPacket(DataType data_type, ReadDataCallback callback)
+{
+    ESP_LOGI(TAG, "readDataPacket called: connected=%d, gattc_if=%d, service_discovered=%d, abf2_handle=0x%04x",
+             _connected, _gattc_if, _service_discovered, _char_handle_abf2);
+    ESP_LOGI(TAG, "ABF2 characteristic properties: 0x%02x (READ=%d, NOTIFY=%d, INDICATE=%d)",
+             _char_properties_abf2,
+             (_char_properties_abf2 & ESP_GATT_CHAR_PROP_BIT_READ) ? 1 : 0,
+             (_char_properties_abf2 & ESP_GATT_CHAR_PROP_BIT_NOTIFY) ? 1 : 0,
+             (_char_properties_abf2 & ESP_GATT_CHAR_PROP_BIT_INDICATE) ? 1 : 0);
+    
+    if (!_connected || _gattc_if == ESP_GATT_IF_NONE) {
+        ESP_LOGW(TAG, "Cannot read: not connected");
+        return false;
+    }
+    
+    if (!_service_discovered || _char_handle_abf2 == 0) {
+        ESP_LOGW(TAG, "Cannot read: ABF2 characteristic not discovered yet");
+        return false;
+    }
+    
+    // Store callback for when read completes
+    _read_data_callback = callback;
+    
+    // Reset read state
+    _read_pending = true;
+    _read_complete = false;
+    _read_success = false;
+    _read_length = 0;
+    _read_event_count = 0;  // Reset debug counter
+    
+    // Determine data type name for logging
+    const char *type_name = (data_type == DataType::ANIMATION) ? "ANIMATION" : "LIGHTING";
+    
+    ESP_LOGI(TAG, "Reading DataPacket from ABF2 (0x%04x): type=%s", 
+             _char_handle_abf2, type_name);
+    ESP_LOGI(TAG, "Read request params: gattc_if=%d, conn_id=%d, char_handle=0x%04x",
+             _gattc_if, _conn_id, _char_handle_abf2);
+    
+    // Initiate read from ABF2 characteristic (data notify)
+    esp_err_t ret = esp_ble_gattc_read_char(
+        _gattc_if,
+        _conn_id,
+        _char_handle_abf2,
+        ESP_GATT_AUTH_REQ_NONE
+    );
+    
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read characteristic: %s (0x%x)", esp_err_to_name(ret), ret);
+        _read_pending = false;
+        _read_data_callback = nullptr;
+        return false;
+    }
+    
+    ESP_LOGI(TAG, "Read characteristic request sent successfully");
     return true;
 }
 
@@ -701,7 +880,7 @@ void BluetoothService::handleGapEvent(esp_gap_ble_cb_event_t event, esp_ble_gap_
             }
         } else {
             ESP_LOGD(TAG, "Extended scan params set, starting scan");
-            uint32_t duration = 1000; // Scan for 10 seconds (units of 10ms)
+            uint32_t duration = 5000; // Scan for 10 seconds (units of 10ms)
             uint16_t period = 0;       // No periodic scanning
             esp_ble_gap_start_ext_scan(duration, period);
             _scanning = true;

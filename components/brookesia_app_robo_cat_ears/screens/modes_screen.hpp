@@ -46,6 +46,20 @@ public:
         _on_modal_hidden = callback;
     }
 
+    /**
+     * @brief Set the mode programmatically
+     * 
+     * @param mode Mode name (e.g., "Solid", "Breathing", etc.)
+     */
+    void setMode(const char *mode);
+
+    /**
+     * @brief Set the speed programmatically
+     * 
+     * @param speed Speed value (1-100)
+     */
+    void setSpeed(int speed);
+
 private:
     lv_obj_t *_container;
     lv_obj_t *_panel;
@@ -55,6 +69,11 @@ private:
     lv_obj_t *_ok_btn;
     lv_obj_t *_mode_buttons[5];  // Track mode buttons for state updates
     lv_obj_t *_selected_mode_btn;
+    lv_timer_t *_speed_debounce_timer;  // Timer for debouncing speed changes
+    
+    // Store initial state for cancel functionality
+    char _initial_mode[32];
+    int _initial_speed;
     
     void updateModeButtonStates(lv_obj_t *selected_btn);
     

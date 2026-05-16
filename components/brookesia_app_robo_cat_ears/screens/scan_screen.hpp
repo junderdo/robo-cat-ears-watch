@@ -8,6 +8,7 @@
 
 #include "lvgl.h"
 #include <functional>
+#include <string>
 
 namespace esp_brookesia::apps::screens {
 
@@ -69,12 +70,28 @@ public:
      */
     lv_obj_t *getDisconnectButton() const { return _disconnect_btn; }
 
+    /**
+     * @brief Set the connected device address for highlighting
+     *
+     * @param address The BLE address of the connected device (or nullptr/"" to clear)
+     */
+    void setConnectedDevice(const char *address);
+
+    /**
+     * @brief Get the connected device address
+     *
+     * @return The BLE address of the connected device
+     */
+    const char *getConnectedDevice() const { return _connected_device_address.c_str(); }
+
 private:
     lv_obj_t *_container;
     lv_obj_t *_status_label;
     lv_obj_t *_device_list;
     lv_obj_t *_scan_btn;
     lv_obj_t *_disconnect_btn;
+
+    std::string _connected_device_address;  // Track which device is connected
 
     std::function<void()> _on_scan_clicked;
     std::function<void()> _on_disconnect_clicked;

@@ -62,6 +62,33 @@ public:
         _on_add_color_clicked = callback;
     }
 
+    /**
+     * @brief Load lighting data from the lighting service
+     * 
+     * Attempts to read lighting configuration from the ABF2 characteristic
+     * and updates the UI accordingly (colors, mode, speed)
+     */
+    void loadLightingData();
+
+    /**
+     * @brief Set the current mode
+     * 
+     * @param mode Mode name string
+     */
+    void setMode(const std::string &mode);
+
+    /**
+     * @brief Set the current speed
+     * 
+     * @param speed Speed value (1-100)
+     */
+    void setSpeed(int speed);
+
+    /**
+     * @brief Clear all colors from the list
+     */
+    void clearColors();
+
 private:
 
     /**
@@ -89,6 +116,14 @@ private:
      */
     void reorderColor(int from_index, int to_index);
 
+    /**
+     * @brief Save current lighting data to the device
+     * 
+     * Collects the current mode, speed, and colors and writes them
+     * to the ABF2 characteristic via the lighting service
+     */
+    void saveLightingDataToDevice();
+
     lv_obj_t *_container;
     lv_obj_t *_status_label;
     lv_obj_t *_add_color_btn;
@@ -102,6 +137,7 @@ private:
     int _current_speed;
     int _last_reorder_from_index;  // Track last reorder indices to prevent rapid re-triggering
     int _last_reorder_to_index;
+    bool _loading_from_device;  // Flag to prevent saving during initial load
 };
 
 } // namespace esp_brookesia::apps::screens

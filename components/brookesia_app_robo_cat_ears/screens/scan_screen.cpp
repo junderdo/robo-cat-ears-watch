@@ -11,6 +11,7 @@
 #endif
 #define ESP_UTILS_LOG_TAG "BS:ScanScreen"
 #include "esp_lib_utils.h"
+#include <cstring>
 
 namespace esp_brookesia::apps::screens {
 
@@ -40,7 +41,7 @@ ScanScreen::ScanScreen(lv_obj_t *parent_screen,
     _status_label = lv_label_create(_container);
     lv_label_set_text(_status_label, "Not connected");
     lv_obj_set_style_text_color(_status_label, lv_color_hex(0x808080), 0);
-    lv_obj_set_style_text_font(_status_label, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(_status_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_align(_status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(_status_label, LV_ALIGN_TOP_MID, 0, 15);
 
@@ -117,6 +118,17 @@ ScanScreen::~ScanScreen()
 {
     // LVGL objects are automatically cleaned up when parent is deleted
     // No need to explicitly delete child objects
+}
+
+void ScanScreen::setConnectedDevice(const char *address)
+{
+    if (address && strlen(address) > 0) {
+        _connected_device_address = address;
+        ESP_UTILS_LOGD("Connected device set to: %s", address);
+    } else {
+        _connected_device_address.clear();
+        ESP_UTILS_LOGD("Connected device cleared");
+    }
 }
 
 } // namespace esp_brookesia::apps::screens
