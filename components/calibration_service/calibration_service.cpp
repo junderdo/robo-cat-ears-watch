@@ -198,13 +198,19 @@ bool CalibrationService::readCalibrationData(CalibrationData *data, CalibrationS
     }
     
     ESP_LOGI(TAG, "Reading calibration data from device via ABF2 characteristic");
-    
+
     // Capture callback in a shared pointer so it can be safely copied
     auto callback_ptr = std::make_shared<DataLoadedCallback>(callback);
-    
+
     // Initiate read request with minimal callback
     bool request_sent = bt_service->readDataPacket(DataType::CALIBRATION, 
         [callback_ptr](bool success, DataType type, const uint8_t* buffer, size_t length) {
+            // Log raw data for debugging
+            ESP_LOGI(TAG, "Raw data received (length=%zu):", length);
+            for (size_t i = 0; i < length; i++) {
+                ESP_LOGI(TAG, "Byte[%zu]: 0x%02x", i, buffer[i]);
+            }
+
             // Called from BLE task - NO logging, NO allocations allowed here
             // Allocate a copy of the buffer to pass to async call
             if (success && length > 0 && length <= 256) {
@@ -212,7 +218,7 @@ bool CalibrationService::readCalibrationData(CalibrationData *data, CalibrationS
                 for (size_t i = 0; i < length; i++) {
                     buffer_copy[i] = buffer[i];
                 }
-                
+
                 // Package the data for async processing
                 struct AsyncData {
                     uint8_t* buffer;
@@ -220,18 +226,18 @@ bool CalibrationService::readCalibrationData(CalibrationData *data, CalibrationS
                     std::shared_ptr<DataLoadedCallback> callback;
                 };
                 AsyncData* async_data = new AsyncData{buffer_copy, length, callback_ptr};
-                
+
                 // Use LVGL async call to defer processing to LVGL task
                 lv_async_call([](void* user_data) {
                     AsyncData* async_data = static_cast<AsyncData*>(user_data);
-                    
+
                     if (async_data->length < 2) {
                         ESP_LOGE(TAG, "Read failed or invalid length");
                         delete[] async_data->buffer;
                         delete async_data;
                         return;
                     }
-                    
+
                     DataType type = static_cast<DataType>(async_data->buffer[0]);
                     if (type != DataType::CALIBRATION) {
                         ESP_LOGE(TAG, "Invalid data type in response: got 0x%02x", async_data->buffer[0]);
@@ -239,10 +245,10 @@ bool CalibrationService::readCalibrationData(CalibrationData *data, CalibrationS
                         delete async_data;
                         return;
                     }
-                    
+
                     // Create string from data portion (skip type byte)
                     std::string packet_data((const char*)&async_data->buffer[1], async_data->length - 1);
-                    
+
                     // Log the raw bytes for debugging
                     ESP_LOGI(TAG, "Raw packed data (%zu bytes): left_azi=0x%02x left_lat=0x%02x right_azi=0x%02x right_lat=0x%02x",
                              packet_data.length(),
@@ -250,7 +256,7 @@ bool CalibrationService::readCalibrationData(CalibrationData *data, CalibrationS
                              packet_data.length() > 1 ? (uint8_t)packet_data[1] : 0,
                              packet_data.length() > 2 ? (uint8_t)packet_data[2] : 0,
                              packet_data.length() > 3 ? (uint8_t)packet_data[3] : 0);
-                    
+
                     // Unpack into a temporary CalibrationData
                     CalibrationData temp_data;
                     if (CalibrationData::unpack(packet_data, temp_data)) {
@@ -259,7 +265,7 @@ bool CalibrationService::readCalibrationData(CalibrationData *data, CalibrationS
                         // Update cached data in CalibrationService
                         CalibrationService::getInstance()->_current_data = temp_data;
                         ESP_LOGI(TAG, "Successfully read calibration data from device");
-                        
+
                         // Invoke callback if provided
                         if (async_data->callback && *async_data->callback) {
                             (*async_data->callback)(temp_data);
@@ -267,25 +273,25 @@ bool CalibrationService::readCalibrationData(CalibrationData *data, CalibrationS
                     } else {
                         ESP_LOGE(TAG, "Failed to unpack calibration data");
                     }
-                    
+
                     delete[] async_data->buffer;
                     delete async_data;
                 }, async_data);
             }
         });
-    
+
     if (!request_sent) {
         ESP_LOGE(TAG, "Failed to initiate read request");
         return false;
     }
-    
+
     ESP_LOGI(TAG, "Read request sent, callback will process data when response arrives");
-    
+
     // Copy cached data to output parameter (caller can use this immediately)
     if (data) {
         *data = _current_data;
     }
-    
+
     return true;
 }
 

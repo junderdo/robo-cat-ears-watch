@@ -182,8 +182,6 @@ CalibrationScreen::CalibrationScreen(lv_obj_t *parent)
             screen->hide();
         }
     }, LV_EVENT_CLICKED, this);
-
-    loadCalibrationData();
 }
 
 CalibrationScreen::~CalibrationScreen()
@@ -211,6 +209,8 @@ void CalibrationScreen::show()
     if (_on_modal_shown) {
         _on_modal_shown();
     }
+
+    loadCalibrationData();
 }
 
 void CalibrationScreen::hide()
@@ -228,39 +228,33 @@ void CalibrationScreen::hide()
 void CalibrationScreen::loadCalibrationData()
 {
     ESP_UTILS_LOGI("Attempting to load calibration data from service");
-    
+
     // Add connection state check before initiating a new connection
     robo_cat_ears::BluetoothService *bt_service = robo_cat_ears::BluetoothService::getInstance();
     if (!bt_service) {
         ESP_UTILS_LOGE("BluetoothService instance is null");
         return;
     }
-    
+
     // Check if we're connected to a device
     if (!bt_service || !bt_service->isConnected()) {
         ESP_UTILS_LOGD("Not connected to device, skipping calibration data load");
         return;
     }
-    
-    // Check if ABF2 characteristic is available (for reading)
-    if (bt_service->getCharHandleABF2() == 0) {
-        ESP_UTILS_LOGW("ABF2 characteristic not discovered, skipping calibration data load");
-        return;
-    }
-    
+
     // Get calibration service instance
     robo_cat_ears::CalibrationService *calibration_service = robo_cat_ears::CalibrationService::getInstance();
     if (!calibration_service) {
         ESP_UTILS_LOGE("Failed to get calibration service instance");
         return;
     }
-    
+
     // Initialize calibration service if not already done
     if (!calibration_service->init()) {
         ESP_UTILS_LOGE("Failed to initialize calibration service");
         return;
     }
-    
+
     // Read calibration data from device
     robo_cat_ears::CalibrationData calibration_data;
     if (!calibration_service->readCalibrationData(&calibration_data, [this](const robo_cat_ears::CalibrationData& data) {
@@ -285,7 +279,7 @@ void CalibrationScreen::loadCalibrationData()
         ESP_UTILS_LOGW("Failed to read calibration data from device");
         return;
     }
-    
+
     ESP_UTILS_LOGI("Read request sent, waiting for data to arrive asynchronously");
 }
 
