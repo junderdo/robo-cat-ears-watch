@@ -1,6 +1,6 @@
 {
     "idf.currentSetup": "/home/jeffu/esp/v5.5.2/esp-idf",
-    "idf.port": "/dev/ttyACM1",
+    "idf.port": "/dev/ttyACM0",
     "idf.flashType": "UART",
     "idf.openOcdConfigs": [
         "board/esp32s3-builtin.cfg"

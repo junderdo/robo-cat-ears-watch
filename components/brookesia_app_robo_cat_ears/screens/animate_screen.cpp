@@ -35,7 +35,7 @@ AnimateScreen::AnimateScreen(lv_obj_t *parent_screen,
     lv_obj_set_style_text_color(_status_label, lv_color_hex(0x808080), 0);
     lv_obj_set_style_text_font(_status_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_align(_status_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(_status_label, LV_ALIGN_TOP_MID, 0, 15);
+    lv_obj_align(_status_label, LV_ALIGN_TOP_MID, 0, 36);
 
     // Calculate button size to fill the screen in a 2x2 grid
     int screen_width = lv_obj_get_width(parent_screen);

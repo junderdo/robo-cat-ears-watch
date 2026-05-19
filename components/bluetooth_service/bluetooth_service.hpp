@@ -68,6 +68,7 @@ public:
     using DeviceDiscoveredCallback = std::function<void(const BleDevice &device)>;
     using DeviceListUpdatedCallback = std::function<void(const std::vector<BleDevice> &devices)>;
     using ConnectionStatusCallback = std::function<void(bool connected, const std::string &device_name, const std::string &address)>;
+    using DisconnectionCallback = std::function<void(const std::string &device_name, const std::string &address)>;
     using ScanningStatusCallback = std::function<void(bool scanning)>;
     using ServiceReadyCallback = std::function<void()>;
     using ReadDataCallback = std::function<void(bool success, DataType type, const uint8_t *data, size_t length)>;
@@ -222,6 +223,11 @@ public:
     void setConnectionStatusCallback(ConnectionStatusCallback callback) { _connection_status_callback = callback; }
 
     /**
+     * @brief Set disconnection callback (called when connection is lost)
+     */
+    void setDisconnectionCallback(DisconnectionCallback callback) { _disconnection_callback = callback; }
+
+    /**
      * @brief Set scanning status callback
      */
     void setScanningStatusCallback(ScanningStatusCallback callback) { _scanning_status_callback = callback; }
@@ -287,6 +293,7 @@ private:
     DeviceDiscoveredCallback _device_discovered_callback;
     DeviceListUpdatedCallback _device_list_updated_callback;
     ConnectionStatusCallback _connection_status_callback;
+    DisconnectionCallback _disconnection_callback;
     ScanningStatusCallback _scanning_status_callback;
     ServiceReadyCallback _service_ready_callback;
     ReadDataCallback _read_data_callback;

@@ -92,6 +92,7 @@ BluetoothService::BluetoothService()
     , _device_discovered_callback(nullptr)
     , _device_list_updated_callback(nullptr)
     , _connection_status_callback(nullptr)
+    , _disconnection_callback(nullptr)
     , _scanning_status_callback(nullptr)
     , _service_ready_callback(nullptr)
     , _read_data_callback(nullptr)
@@ -236,9 +237,14 @@ bool BluetoothService::init()
                 }
             }
             break;
-        case ESP_GATTC_CLOSE_EVT:
+        case ESP_GATTC_CLOSE_EVT: {
             ESP_LOGI(TAG, "ESP_GATTC_CLOSE_EVT: Disconnected from device (conn_id=%d, reason=%d)", 
                           service->_conn_id, param->close.reason);
+            
+            // Save device info before clearing for disconnection callback
+            std::string disconnected_device_name = service->_connected_device_name;
+            std::string disconnected_address = service->_connected_address;
+            
             service->_connected = false;
             service->_conn_id = 0;
             service->_connected_address = "";
@@ -255,7 +261,13 @@ bool BluetoothService::init()
             if (service->_connection_status_callback) {
                 service->_connection_status_callback(false, "", "");
             }
+            
+            // Notify disconnection via dedicated callback
+            if (service->_disconnection_callback) {
+                service->_disconnection_callback(disconnected_device_name, disconnected_address);
+            }
             break;
+        }
         case ESP_GATTC_SEARCH_CMPL_EVT:
             if (param->search_cmpl.status == ESP_GATT_OK) {
                 // NO LOGGING - causes heap corruption in BLE context

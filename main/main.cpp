@@ -15,6 +15,7 @@
 #include "esp_lib_utils.h"
 #include "./dark/stylesheet.hpp"
 #include "esp_brookesia_app_system_info.hpp"
+#include "esp_wifi.h"
 
 // C includes
 #include "system/status.h"
@@ -33,9 +34,15 @@ using namespace esp_brookesia::systems::phone;
     }
 
 constexpr bool EXAMPLE_SHOW_MEM_INFO = false;
+constexpr uint32_t BACKLIGHT_TIMEOUT_MS = 15000; // 15 seconds
+
+// Bluetooth icon ID for status bar
+constexpr int BLUETOOTH_ICON_ID = 100;
 
 // Global system status instance
 static SystemStatus *g_system_status = nullptr;
+Phone *g_phone = nullptr;  // Global phone instance for Bluetooth icon updates
+lv_obj_t *g_bluetooth_icon_label = nullptr;  // Bluetooth icon label
 
 extern "C" void app_main(void)
 {
@@ -62,6 +69,10 @@ extern "C" void app_main(void)
         }
     }
 
+    // turn off wifi radio to save power
+    ESP_UTILS_CHECK_FALSE_EXIT(esp_wifi_stop(), "Stop WiFi failed");
+    ESP_UTILS_CHECK_FALSE_EXIT(esp_wifi_deinit(), "Deinit WiFi failed");
+
     /* Configure GUI lock */
     LvLock::registerCallbacks([](int timeout_ms) {
         if (timeout_ms < 0) {
@@ -81,6 +92,7 @@ extern "C" void app_main(void)
     /* Create a phone object */
     Phone *phone = new (std::nothrow) Phone();
     ESP_UTILS_CHECK_NULL_EXIT(phone, "Create phone failed");
+    g_phone = phone;  // Store for global access
 
     /* Try using a stylesheet that corresponds to the resolution */
     if ((BSP_LCD_H_RES == 410) && (BSP_LCD_V_RES == 502)) {
@@ -109,22 +121,14 @@ extern "C" void app_main(void)
         std::vector<std::string> app_order = {"ROBO_CAT_EARS", "SYSTEM_INFO"};
         ESP_UTILS_CHECK_FALSE_EXIT(phone->installAppFromRegistry(inited_apps, &app_order), "Install app registry failed");
 
-        /* Create a timer to update the clock */
-        lv_timer_create([](lv_timer_t *t) {
-            time_t now;
-            struct tm timeinfo;
-            Phone *phone = (Phone *)t->user_data;
-
-            ESP_UTILS_CHECK_NULL_EXIT(phone, "Invalid phone");
-
-            time(&now);
-            localtime_r(&now, &timeinfo);
-
-            ESP_UTILS_CHECK_FALSE_EXIT(
-                phone->getDisplay().getStatusBar()->setClock(timeinfo.tm_hour, timeinfo.tm_min),
-                "Refresh status bar failed"
-            );
-        }, 1000, phone);
+        /* Create Bluetooth status label on active screen (replacing WiFi icon) */
+        g_bluetooth_icon_label = lv_label_create(lv_scr_act());
+        ESP_UTILS_CHECK_NULL_EXIT(g_bluetooth_icon_label, "Failed to create Bluetooth icon label");
+        
+        lv_label_set_text(g_bluetooth_icon_label, LV_SYMBOL_WARNING);  // Start with disconnected state
+        lv_obj_set_style_text_font(g_bluetooth_icon_label, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_color(g_bluetooth_icon_label, lv_color_white(), 0);  // Explicitly set white color
+        lv_obj_align(g_bluetooth_icon_label, LV_ALIGN_TOP_RIGHT, -50, 10);
 
         lv_timer_create([](lv_timer_t *t) {
             Phone *phone = (Phone *)t->user_data;
@@ -150,6 +154,31 @@ extern "C" void app_main(void)
                 system_info_app->updateSystemInfo();
             }
         }, 2000, phone);
+
+        /* Create a task to handle backlight timeout */
+        lv_timer_create([](lv_timer_t *t) {
+            static bool backlight_on = true;
+            lv_disp_t *disp = lv_disp_get_default();
+            
+            if (!disp) {
+                return;
+            }
+
+            uint32_t inactive_time = lv_disp_get_inactive_time(disp);
+
+            /* Turn off backlight after timeout */
+            if (backlight_on && inactive_time >= BACKLIGHT_TIMEOUT_MS) {
+                ESP_UTILS_LOGI("Turning off backlight due to inactivity (%lu ms)", inactive_time);
+                bsp_display_backlight_off();
+                backlight_on = false;
+            }
+            /* Turn on backlight when touch detected */
+            else if (!backlight_on && inactive_time < BACKLIGHT_TIMEOUT_MS) {
+                ESP_UTILS_LOGI("Turning on backlight due to touch activity");
+                bsp_display_backlight_on();
+                backlight_on = true;
+            }
+        }, 500, nullptr);  // Check every 500ms
     }
 
     if constexpr (EXAMPLE_SHOW_MEM_INFO) {
