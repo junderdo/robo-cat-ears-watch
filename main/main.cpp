@@ -36,13 +36,9 @@ using namespace esp_brookesia::systems::phone;
 constexpr bool EXAMPLE_SHOW_MEM_INFO = false;
 constexpr uint32_t BACKLIGHT_TIMEOUT_MS = 15000; // 15 seconds
 
-// Bluetooth icon ID for status bar
-constexpr int BLUETOOTH_ICON_ID = 100;
-
 // Global system status instance
 static SystemStatus *g_system_status = nullptr;
-Phone *g_phone = nullptr;  // Global phone instance for Bluetooth icon updates
-lv_obj_t *g_bluetooth_icon_label = nullptr;  // Bluetooth icon label
+Phone *g_phone = nullptr;  // Global phone instance for Bluetooth status updates
 
 extern "C" void app_main(void)
 {
@@ -121,14 +117,11 @@ extern "C" void app_main(void)
         std::vector<std::string> app_order = {"ROBO_CAT_EARS", "SYSTEM_INFO"};
         ESP_UTILS_CHECK_FALSE_EXIT(phone->installAppFromRegistry(inited_apps, &app_order), "Install app registry failed");
 
-        /* Create Bluetooth status label on active screen (replacing WiFi icon) */
-        g_bluetooth_icon_label = lv_label_create(lv_scr_act());
-        ESP_UTILS_CHECK_NULL_EXIT(g_bluetooth_icon_label, "Failed to create Bluetooth icon label");
-        
-        lv_label_set_text(g_bluetooth_icon_label, LV_SYMBOL_WARNING);  // Start with disconnected state
-        lv_obj_set_style_text_font(g_bluetooth_icon_label, &lv_font_montserrat_20, 0);
-        lv_obj_set_style_text_color(g_bluetooth_icon_label, lv_color_white(), 0);  // Explicitly set white color
-        lv_obj_align(g_bluetooth_icon_label, LV_ALIGN_TOP_RIGHT, -50, 10);
+        /* Set initial WiFi icon state to disconnected (will be used for Bluetooth status) */
+        ESP_UTILS_CHECK_FALSE_EXIT(
+            phone->getDisplay().getStatusBar()->setWifiIconState(0),
+            "Set initial WiFi icon state failed"
+        );
 
         lv_timer_create([](lv_timer_t *t) {
             Phone *phone = (Phone *)t->user_data;
