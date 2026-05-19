@@ -51,6 +51,7 @@ RoboCatEars::RoboCatEars(bool use_status_bar, bool use_navigation_bar):
     _animate_screen(nullptr),
     _glow_screen(nullptr),
     _pick_color_screen(nullptr),
+    _settings_screen(nullptr),
     _current_screen(0),
     _bluetooth_service(nullptr),
     _reconnection_timer(nullptr),
@@ -79,6 +80,10 @@ RoboCatEars::~RoboCatEars()
     if (_pick_color_screen) {
         delete _pick_color_screen;
         _pick_color_screen = nullptr;
+    }
+    if (_settings_screen) {
+        delete _settings_screen;
+        _settings_screen = nullptr;
     }
 }
 
@@ -197,6 +202,8 @@ bool RoboCatEars::run(void)
 
     _glow_screen = new screens::GlowScreen(screen);
 
+    _settings_screen = new screens::SettingsScreen(screen);
+
     // Create pick color screen (modal, not part of swipe navigation)
     _pick_color_screen = new screens::PickColorScreen(screen);
 
@@ -237,11 +244,11 @@ bool RoboCatEars::run(void)
         
         if (dir == LV_DIR_LEFT) {
             // Swipe left - go to next screen (circular)
-            int next_screen = (app->_current_screen + 1) % 3;
+            int next_screen = (app->_current_screen + 1) % 4;
             app->switchToScreen(next_screen);
         } else if (dir == LV_DIR_RIGHT) {
             // Swipe right - go to previous screen (circular)
-            int prev_screen = (app->_current_screen - 1 + 3) % 3;
+            int prev_screen = (app->_current_screen - 1 + 4) % 4;
             app->switchToScreen(prev_screen);
         }
     }, LV_EVENT_GESTURE, nullptr);
@@ -413,13 +420,17 @@ void RoboCatEars::updateConnectionStatus()
             // Update connected device for highlighting in device list
             app->_scan_screen->setConnectedDevice(address.c_str());
             
-            // Update animate screen status label too
+            // Update animate screen status label
             lv_label_set_text(app->_animate_screen->getStatusLabel(), status_text.c_str());
             lv_obj_set_style_text_color(app->_animate_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
-            // Update glow screen status label too
+            // Update glow screen status label
             lv_label_set_text(app->_glow_screen->getStatusLabel(), status_text.c_str());
             lv_obj_set_style_text_color(app->_glow_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
+
+            // Update settings screen status label
+            lv_label_set_text(app->_settings_screen->getStatusLabel(), status_text.c_str());
+            lv_obj_set_style_text_color(app->_settings_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
             // Show disconnect button, hide scan button
             lv_obj_clear_flag(app->_scan_screen->getDisconnectButton(), LV_OBJ_FLAG_HIDDEN);
@@ -437,13 +448,17 @@ void RoboCatEars::updateConnectionStatus()
             app->_scan_screen->setConnectedDevice(nullptr);
             ESP_UTILS_LOGD("Cleared connected device address");
             
-            // Update animate screen status label too
+            // Update animate screen status label
             lv_label_set_text(app->_animate_screen->getStatusLabel(), "Not connected");
             lv_obj_set_style_text_color(app->_animate_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
             
-            // Update glow screen status label too
+            // Update glow screen status label
             lv_label_set_text(app->_glow_screen->getStatusLabel(), "Not connected");
             lv_obj_set_style_text_color(app->_glow_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
+
+            // Update settings screen status label
+            lv_label_set_text(app->_settings_screen->getStatusLabel(), status_text.c_str());
+            lv_obj_set_style_text_color(app->_settings_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
             // Show scan button, hide disconnect button
             lv_obj_clear_flag(app->_scan_screen->getScanButton(), LV_OBJ_FLAG_HIDDEN);
@@ -669,7 +684,7 @@ void RoboCatEars::switchToScreen(int screen_index)
 {
     ESP_UTILS_LOGD("Switching to screen %d", screen_index);
     
-    if (!_scan_screen || !_animate_screen || !_glow_screen) {
+    if (!_scan_screen || !_animate_screen || !_glow_screen || !_settings_screen) {
         ESP_UTILS_LOGE("Screens not initialized");
         return;
     }
@@ -678,6 +693,7 @@ void RoboCatEars::switchToScreen(int screen_index)
     lv_obj_add_flag(_scan_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(_animate_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(_glow_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(_settings_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
     
     // Show the selected screen
     if (screen_index == 0) {
@@ -691,6 +707,9 @@ void RoboCatEars::switchToScreen(int screen_index)
         lv_obj_clear_flag(_glow_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
         _current_screen = 2;
         updateConnectionStatus();
+    } else if (screen_index == 3) {
+        lv_obj_clear_flag(_settings_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
+        _current_screen = 3;
     }
 }
 
