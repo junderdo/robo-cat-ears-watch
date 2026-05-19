@@ -37,23 +37,33 @@ AnimateScreen::AnimateScreen(lv_obj_t *parent_screen,
     lv_obj_set_style_text_align(_status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(_status_label, LV_ALIGN_TOP_MID, 0, 36);
 
-    // Calculate button size to fill the screen in a 2x2 grid
+    // Calculate button size to fill the screen in a 2-column grid
     int screen_width = lv_obj_get_width(parent_screen);
     int screen_height = lv_obj_get_height(parent_screen);
     int btn_width = (screen_width - 30) / 2;  // 30 = padding + gap
     int btn_height = (screen_height - 120) / 2;  // 120 = top padding for status + gaps
 
-    // Create 4 buttons in a 2x2 grid
-    const char *button_labels[] = {"Happy :)", "Sad :(", "Wiggle", "Radar"};
-    const char *button_commands[] = {"1", "2", "3", "4"};  // Commands to send for each button
+    // Create a scrollable container for the buttons
+    lv_obj_t *scroll_container = lv_obj_create(_container);
+    lv_obj_set_size(scroll_container, screen_width, screen_height - 90);  // Leave room for status label
+    lv_obj_set_pos(scroll_container, 0, 60);
+    lv_obj_set_style_bg_opa(scroll_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(scroll_container, 0, 0);
+    lv_obj_set_style_pad_all(scroll_container, 0, 0);
+    lv_obj_set_scroll_dir(scroll_container, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(scroll_container, LV_SCROLLBAR_MODE_OFF);
 
-    for (int i = 0; i < 4; i++) {
+    // Create 8 buttons in a 2-column grid (4 rows)
+    const char *button_labels[] = {"Happy :)", "Sad :(", "Wiggle", "Radar", "Curious", "Alert", "Timid", "Bounce"};
+    const char *button_commands[] = {"1", "2", "3", "4", "5", "6", "7", "8"};  // Commands to send for each button
+
+    for (int i = 0; i < 8; i++) {
         int row = i / 2;
         int col = i % 2;
         int x_offset = col * (btn_width + 10) + 10;
-        int y_offset = row * (btn_height + 10) + 70;
+        int y_offset = row * (btn_height + 10) + 10;
 
-        lv_obj_t *btn = lv_btn_create(_container);
+        lv_obj_t *btn = lv_btn_create(scroll_container);
         lv_obj_set_size(btn, btn_width, btn_height);
         lv_obj_set_pos(btn, x_offset, y_offset);
 

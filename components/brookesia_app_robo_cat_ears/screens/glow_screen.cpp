@@ -54,7 +54,7 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     // Create a scrollable container for the color list
     _color_list_container = lv_obj_create(_container);
     lv_obj_set_size(_color_list_container, lv_pct(90), 200);
-    lv_obj_align(_color_list_container, LV_ALIGN_TOP_MID, 0, 60);
+    lv_obj_align(_color_list_container, LV_ALIGN_TOP_MID, 0, 70);
     lv_obj_set_style_bg_opa(_color_list_container, LV_OPA_10, 0);
     lv_obj_set_style_border_width(_color_list_container, 1, 0);
     lv_obj_set_style_border_color(_color_list_container, lv_color_hex(0x404040), 0);
