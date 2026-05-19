@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "settings_screen.hpp"
+#include "calibration_screen.hpp"
 
 #ifdef ESP_UTILS_LOG_TAG
 #   undef ESP_UTILS_LOG_TAG
@@ -16,7 +17,9 @@ namespace esp_brookesia::apps::screens {
 
 SettingsScreen::SettingsScreen(lv_obj_t *parent_screen)
     : _container(nullptr),
-    _status_label(nullptr)
+    _status_label(nullptr),
+    _calibration_screen(nullptr),
+    _on_servo_calib_confirmed(nullptr)
 {
     ESP_UTILS_LOGD("Creating settings screen");
 
@@ -48,6 +51,63 @@ SettingsScreen::SettingsScreen(lv_obj_t *parent_screen)
     lv_obj_set_style_text_font(servo_label, &lv_font_montserrat_24, 0);
     lv_obj_center(servo_label);
 
+    // Create calibration screen (modal)
+    _calibration_screen = std::make_unique<CalibrationScreen>(parent_screen);
+    
+    // Wire up calibration screen callbacks
+    _calibration_screen->setOnCalibrationChanged([this](int left_azi, int left_lat, int right_azi, int right_lat) {
+        ESP_UTILS_LOGI("Calibration changed: Left Azi=%d, Left Lat=%d, Right Azi=%d, Right Lat=%d",
+                       left_azi, left_lat, right_azi, right_lat);
+        // Send an update packet to the device with the new calibration values
+        robo_cat_ears::BluetoothService *bt_service = robo_cat_ears::BluetoothService::getInstance();
+        if (!bt_service || !bt_service->isConnected()) {
+            ESP_UTILS_LOGW("Cannot send update: Not connected to device");
+            return;
+        }
+
+        robo_cat_ears::CalibrationService *calibration_service = robo_cat_ears::CalibrationService::getInstance();
+        if (!calibration_service) {
+            ESP_UTILS_LOGE("Cannot send update: Calibration service not available");
+            return;
+        }
+
+        // Ensure the calibration service is initialized before sending updates
+        if (!calibration_service->init()) {
+            ESP_UTILS_LOGE("Failed to initialize calibration service");
+            return;
+        }
+
+        robo_cat_ears::CalibrationData data;
+        data.left_azi = left_azi;
+        data.left_lat = left_lat;
+        data.right_azi = right_azi;
+        data.right_lat = right_lat;
+
+        if (!calibration_service->writeCalibrationData(&data)) {
+            ESP_UTILS_LOGE("Failed to send calibration update to device");
+        } else {
+            ESP_UTILS_LOGI("Calibration update sent successfully");
+        }
+    });
+
+    _calibration_screen->setOnConfirmed([this](int left_azi, int left_lat, int right_azi, int right_lat) {
+        ESP_UTILS_LOGI("Servo calibration confirmed: Left Azi=%d, Left Lat=%d, Right Azi=%d, Right Lat=%d",
+                       left_azi, left_lat, right_azi, right_lat);
+        if (_on_servo_calib_confirmed) {
+            _on_servo_calib_confirmed(left_azi, left_lat, right_azi, right_lat);
+        }
+    });
+    
+    _calibration_screen->setOnModalShown([this]() {
+        ESP_UTILS_LOGD("Calibration modal shown");
+        // Disable parent gestures when modal is open
+        lv_obj_add_flag(_container, LV_OBJ_FLAG_GESTURE_BUBBLE);  // Keep bubbling to parent
+    });
+    
+    _calibration_screen->setOnModalHidden([this]() {
+        ESP_UTILS_LOGD("Calibration modal hidden");
+    });
+
     // Add event handler for servo calibration button
     lv_obj_add_event_cb(servo_calib_btn, [](lv_event_t *e) {
         // Ignore click if a gesture (swipe) was detected
@@ -56,9 +116,12 @@ SettingsScreen::SettingsScreen(lv_obj_t *parent_screen)
             return; // Swipe detected, don't process as click
         }
 
-        ESP_UTILS_LOGD("Servo Calibration button clicked");
-        // TODO: Implement servo calibration functionality
-    }, LV_EVENT_CLICKED, nullptr);
+        SettingsScreen *screen = (SettingsScreen *)lv_event_get_user_data(e);
+        if (screen && screen->_calibration_screen) {
+            ESP_UTILS_LOGD("Showing servo calibration modal");
+            screen->_calibration_screen->show();
+        }
+    }, LV_EVENT_CLICKED, this);
 
     ESP_UTILS_LOGD("Settings screen created successfully");
 }

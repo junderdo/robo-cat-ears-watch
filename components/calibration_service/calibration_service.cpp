@@ -1,10 +1,10 @@
 /*
- * Description: Lighting service implementation for Robo cat ears controller
+ * Description: Calibration service implementation for Robo cat ears controller
  * Author: Jeff Underdown (junderdo)
  * Copyright (C) 2026 Milk Lab Creations
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
-#include "lighting_service.hpp"
+#include "calibration_service.hpp"
 #include "bluetooth_service.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -16,141 +16,114 @@
 #include <algorithm>
 #include <memory>
 
-static const char *TAG = "LightingService";
+static const char *TAG = "CalibrationService";
 
 namespace robo_cat_ears {
 
-// LightingData binary pack/unpack implementation
-std::string LightingData::pack() const
+// CalibrationData binary pack/unpack implementation
+std::string CalibrationData::pack() const
 {
     std::string packed;
-    packed.reserve(3 + (colors.size() * 3));  // mode + speed + num_colors + RGB data
-    
-    // Pack mode (1 byte)
-    packed.push_back(static_cast<uint8_t>(mode));
-    
-    // Pack speed (1 byte)
-    packed.push_back(speed);
-    
-    // Pack number of colors (1 byte, clamped to max 32)
-    uint8_t num_colors = static_cast<uint8_t>(std::min(colors.size(), size_t(32)));
-    packed.push_back(num_colors);
-    
-    // Pack each color as RGB (3 bytes each)
-    for (size_t i = 0; i < num_colors; i++) {
-        packed.push_back(colors[i].r);
-        packed.push_back(colors[i].g);
-        packed.push_back(colors[i].b);
-    }
+
+    // Pack each value as 2 bytes (int16_t)
+    packed.push_back((left_azi >> 8) & 0xFF);
+    packed.push_back(left_azi & 0xFF);
+    packed.push_back((left_lat >> 8) & 0xFF);
+    packed.push_back(left_lat & 0xFF);
+    packed.push_back((right_azi >> 8) & 0xFF);
+    packed.push_back(right_azi & 0xFF);
+    packed.push_back((right_lat >> 8) & 0xFF);
+    packed.push_back(right_lat & 0xFF);
     
     return packed;
 }
 
-bool LightingData::unpack(const std::string &packed, LightingData &data)
+bool CalibrationData::unpack(const std::string &packed, CalibrationData &data)
 {
-    // Minimum size: mode + speed + num_colors = 3 bytes
-    if (packed.length() < 3) {
+    // Minimum size: left_azi + left_lat + right_azi + right_lat = 8 bytes
+    if (packed.length() < 8) {
         return false;
     }
     
     size_t offset = 0;
     
-    // Unpack mode (1 byte)
-    data.mode = static_cast<LightingMode>(packed[offset++]);
+    // Unpack left_azi (2 bytes)
+    data.left_azi = (packed[offset] << 8) | packed[offset + 1];
+    offset += 2;
     
-    // Validate mode
-    if (data.mode < LightingMode::SOLID || data.mode > LightingMode::RAIN) {
-        return false;
-    }
+    // Unpack left_lat (2 bytes)
+    data.left_lat = (packed[offset] << 8) | packed[offset + 1];
+    offset += 2;
     
-    // Unpack speed (1 byte)
-    data.speed = packed[offset++];
-    if (data.speed < 1 || data.speed > 100) {
-        data.speed = std::clamp(data.speed, uint8_t(1), uint8_t(100));
-    }
+    // Unpack right_azi (2 bytes)
+    data.right_azi = (packed[offset] << 8) | packed[offset + 1];
+    offset += 2;
     
-    // Unpack number of colors (1 byte)
-    uint8_t num_colors = packed[offset++];
-    if (num_colors > 32) {
-        return false;  // Invalid color count
-    }
-    
-    // Verify we have enough data for all colors
-    size_t expected_size = 3 + (num_colors * 3);
-    if (packed.length() != expected_size) {
-        return false;
-    }
-    
-    // Unpack colors (3 bytes each: RGB)
-    data.colors.clear();
-    data.colors.reserve(num_colors);
-    
-    for (uint8_t i = 0; i < num_colors; i++) {
-        uint8_t r = packed[offset++];
-        uint8_t g = packed[offset++];
-        uint8_t b = packed[offset++];
-        data.colors.emplace_back(r, g, b);
-    }
+    // Unpack right_lat (2 bytes)
+    data.right_lat = (packed[offset] << 8) | packed[offset + 1];
     
     return true;
 }
 
-LightingService *LightingService::_instance = nullptr;
+CalibrationService *CalibrationService::_instance = nullptr;
 
-LightingService *LightingService::getInstance()
+CalibrationService *CalibrationService::getInstance()
 {
     if (_instance == nullptr) {
-        _instance = new LightingService();
+        _instance = new CalibrationService();
     }
     return _instance;
 }
 
-LightingService::LightingService()
+CalibrationService::CalibrationService()
     : _initialized(false)
 {
 }
 
-LightingService::~LightingService()
+CalibrationService::~CalibrationService()
 {
     deinit();
 }
 
-bool LightingService::init()
+bool CalibrationService::init()
 {
     if (_initialized) {
-        ESP_LOGD(TAG, "Lighting service already initialized");
+        ESP_LOGD(TAG, "Calibration service already initialized");
         return true;
     }
     
-    ESP_LOGI(TAG, "Initializing lighting service");
+    ESP_LOGI(TAG, "Initializing calibration service");
     
     // Initialize with default values
-    _current_data.mode = LightingMode::SOLID;
-    _current_data.speed = 50;
-    _current_data.colors.clear();
-    
+    _current_data.left_azi = 0;
+    _current_data.left_lat = 0;
+    _current_data.right_azi = 0;
+    _current_data.right_lat = 0;
     _initialized = true;
-    ESP_LOGI(TAG, "Lighting service initialized successfully");
+    ESP_LOGI(TAG, "Calibration service initialized successfully");
     
     return true;
 }
 
-void LightingService::deinit()
+void CalibrationService::deinit()
 {
     if (!_initialized) {
         return;
     }
     
-    ESP_LOGD(TAG, "Deinitializing lighting service");
+    ESP_LOGD(TAG, "Deinitializing calibration service");
     
-    _current_data.colors.clear();
+    _current_data.left_azi = 0;
+    _current_data.left_lat = 0;
+    _current_data.right_azi = 0;
+    _current_data.right_lat = 0;
     _initialized = false;
 }
 
-bool LightingService::writeLightingData(const LightingData *data)
+bool CalibrationService::writeCalibrationData(const CalibrationData *data)
 {
     if (!_initialized) {
-        ESP_LOGE(TAG, "Lighting service not initialized");
+        ESP_LOGE(TAG, "Calibration service not initialized");
         return false;
     }
     
@@ -159,21 +132,15 @@ bool LightingService::writeLightingData(const LightingData *data)
         return false;
     }
     
-    // Validate data
-    if (data->colors.size() > 32) {
-        ESP_LOGE(TAG, "Too many colors (max 32, got %zu)", data->colors.size());
-        return false;
-    }
-    
     // Pack to binary format
     std::string packed_data = data->pack();
     if (packed_data.empty()) {
-        ESP_LOGE(TAG, "Failed to pack lighting data");
+        ESP_LOGE(TAG, "Failed to pack calibration data");
         return false;
     }
     
-    ESP_LOGI(TAG, "Writing lighting data via DataPacket: mode=%d, speed=%d, colors=%zu, packed_size=%zu bytes",
-             static_cast<int>(data->mode), data->speed, data->colors.size(), packed_data.size());
+    ESP_LOGI(TAG, "Writing calibration data via DataPacket: left_azi=%d left_lat=%d right_azi=%d right_lat=%d packed_size=%zu bytes",
+             data->left_azi, data->left_lat, data->right_azi, data->right_lat, packed_data.size());
     
     // Get Bluetooth service instance
     BluetoothService *bt_service = BluetoothService::getInstance();
@@ -194,14 +161,14 @@ bool LightingService::writeLightingData(const LightingData *data)
         return false;
     }
     
-    // Create DataPacket with LIGHTING type
+    // Create DataPacket with CALIBRATION type
     DataPacket packet;
-    packet.type = DataType::LIGHTING;
+    packet.type = DataType::CALIBRATION;
     packet.data = packed_data;
     
     // Write DataPacket to ABF1 characteristic
     if (!bt_service->writeDataPacket(packet)) {
-        ESP_LOGE(TAG, "Failed to write lighting DataPacket");
+        ESP_LOGE(TAG, "Failed to write calibration DataPacket");
         return false;
     }
     
@@ -211,10 +178,10 @@ bool LightingService::writeLightingData(const LightingData *data)
     return true;
 }
 
-bool LightingService::readLightingData(LightingData *data, DataLoadedCallback callback)
+bool CalibrationService::readCalibrationData(CalibrationData *data, CalibrationService::DataLoadedCallback callback)
 {
     if (!_initialized) {
-        ESP_LOGE(TAG, "Lighting service not initialized");
+        ESP_LOGE(TAG, "Calibration service not initialized");
         return false;
     }
     
@@ -242,13 +209,13 @@ bool LightingService::readLightingData(LightingData *data, DataLoadedCallback ca
         return false;
     }
     
-    ESP_LOGI(TAG, "Reading lighting data from device via ABF2 characteristic");
+    ESP_LOGI(TAG, "Reading calibration data from device via ABF2 characteristic");
     
     // Capture callback in a shared pointer so it can be safely copied
     auto callback_ptr = std::make_shared<DataLoadedCallback>(callback);
     
     // Initiate read request with minimal callback
-    bool request_sent = bt_service->readDataPacket(DataType::LIGHTING, 
+    bool request_sent = bt_service->readDataPacket(DataType::CALIBRATION, 
         [callback_ptr](bool success, DataType type, const uint8_t* buffer, size_t length) {
             // Called from BLE task - NO logging, NO allocations allowed here
             // Allocate a copy of the buffer to pass to async call
@@ -278,7 +245,7 @@ bool LightingService::readLightingData(LightingData *data, DataLoadedCallback ca
                     }
                     
                     DataType type = static_cast<DataType>(async_data->buffer[0]);
-                    if (type != DataType::LIGHTING) {
+                    if (type != DataType::CALIBRATION) {
                         ESP_LOGE(TAG, "Invalid data type in response: got 0x%02x", async_data->buffer[0]);
                         delete[] async_data->buffer;
                         delete async_data;
@@ -289,27 +256,28 @@ bool LightingService::readLightingData(LightingData *data, DataLoadedCallback ca
                     std::string packet_data((const char*)&async_data->buffer[1], async_data->length - 1);
                     
                     // Log the raw bytes for debugging
-                    ESP_LOGI(TAG, "Raw packed data (%zu bytes): mode=0x%02x speed=0x%02x num_colors=0x%02x",
+                    ESP_LOGI(TAG, "Raw packed data (%zu bytes): left_azi=0x%02x left_lat=0x%02x right_azi=0x%02x right_lat=0x%02x",
                              packet_data.length(),
                              packet_data.length() > 0 ? (uint8_t)packet_data[0] : 0,
                              packet_data.length() > 1 ? (uint8_t)packet_data[1] : 0,
-                             packet_data.length() > 2 ? (uint8_t)packet_data[2] : 0);
+                             packet_data.length() > 2 ? (uint8_t)packet_data[2] : 0,
+                             packet_data.length() > 3 ? (uint8_t)packet_data[3] : 0);
                     
-                    // Unpack into a temporary LightingData
-                    LightingData temp_data;
-                    if (LightingData::unpack(packet_data, temp_data)) {
-                        ESP_LOGI(TAG, "Successfully unpacked lighting data: mode=%d, speed=%d, colors=%zu",
-                                 static_cast<int>(temp_data.mode), temp_data.speed, temp_data.colors.size());
-                        // Update cached data in LightingService
-                        LightingService::getInstance()->_current_data = temp_data;
-                        ESP_LOGI(TAG, "Successfully read lighting data from device");
+                    // Unpack into a temporary CalibrationData
+                    CalibrationData temp_data;
+                    if (CalibrationData::unpack(packet_data, temp_data)) {
+                        ESP_LOGI(TAG, "Successfully unpacked calibration data: left_azi=%d, left_lat=%d, right_azi=%d, right_lat=%d",
+                                 temp_data.left_azi, temp_data.left_lat, temp_data.right_azi, temp_data.right_lat);
+                        // Update cached data in CalibrationService
+                        CalibrationService::getInstance()->_current_data = temp_data;
+                        ESP_LOGI(TAG, "Successfully read calibration data from device");
                         
                         // Invoke callback if provided
                         if (async_data->callback && *async_data->callback) {
                             (*async_data->callback)(temp_data);
                         }
                     } else {
-                        ESP_LOGE(TAG, "Failed to unpack lighting data");
+                        ESP_LOGE(TAG, "Failed to unpack calibration data");
                     }
                     
                     delete[] async_data->buffer;
@@ -331,28 +299,6 @@ bool LightingService::readLightingData(LightingData *data, DataLoadedCallback ca
     }
     
     return true;
-}
-
-const char* LightingService::modeToString(LightingMode mode)
-{
-    switch (mode) {
-        case LightingMode::SOLID: return "Solid";
-        case LightingMode::BREATHING: return "Breathing";
-        case LightingMode::MARQUEE: return "Marquee";
-        case LightingMode::CHASING: return "Chasing";
-        case LightingMode::RAIN: return "Rain";
-        default: return "Solid";
-    }
-}
-
-LightingMode LightingService::stringToMode(const std::string &mode_str)
-{
-    if (mode_str == "Solid") return LightingMode::SOLID;
-    if (mode_str == "Breathing") return LightingMode::BREATHING;
-    if (mode_str == "Marquee") return LightingMode::MARQUEE;
-    if (mode_str == "Chasing") return LightingMode::CHASING;
-    if (mode_str == "Rain") return LightingMode::RAIN;
-    return LightingMode::SOLID;  // Default
 }
 
 } // namespace robo_cat_ears

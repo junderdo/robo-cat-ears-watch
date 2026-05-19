@@ -457,8 +457,8 @@ void RoboCatEars::updateConnectionStatus()
             lv_obj_set_style_text_color(app->_glow_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
 
             // Update settings screen status label
-            lv_label_set_text(app->_settings_screen->getStatusLabel(), status_text.c_str());
-            lv_obj_set_style_text_color(app->_settings_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
+            lv_label_set_text(app->_settings_screen->getStatusLabel(), "Not connected");
+            lv_obj_set_style_text_color(app->_settings_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
             
             // Show scan button, hide disconnect button
             lv_obj_clear_flag(app->_scan_screen->getScanButton(), LV_OBJ_FLAG_HIDDEN);

@@ -7,6 +7,9 @@
 #pragma once
 
 #include "lvgl.h"
+#include "calibration_screen.hpp"
+#include <memory>
+#include <functional>
 
 namespace esp_brookesia::apps::screens {
 
@@ -41,9 +44,20 @@ public:
      */
     lv_obj_t *getStatusLabel() const { return _status_label; }
 
+    /**
+     * @brief Set the callback for when servo calibration is confirmed
+     *
+     * @param callback Function to call with calibration values (left_azi, left_lat, right_azi, right_lat)
+     */
+    void setOnServoCalibrationConfirmed(std::function<void(int, int, int, int)> callback) {
+        _on_servo_calib_confirmed = callback;
+    }
+
 private:
     lv_obj_t *_container;
     lv_obj_t *_status_label;
+    std::unique_ptr<CalibrationScreen> _calibration_screen;
+    std::function<void(int, int, int, int)> _on_servo_calib_confirmed;
 };
 
 } // namespace esp_brookesia::apps::screens

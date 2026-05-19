@@ -26,7 +26,8 @@ struct BleDevice {
  */
 enum class DataType : uint8_t {
     ANIMATION = 0x01,
-    LIGHTING = 0x02
+    LIGHTING = 0x02,
+    CALIBRATION = 0x03
 };
 
 /**
