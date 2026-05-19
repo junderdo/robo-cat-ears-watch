@@ -149,18 +149,6 @@ bool CalibrationService::writeCalibrationData(const CalibrationData *data)
         return false;
     }
     
-    // Check if connected
-    if (!bt_service->isConnected()) {
-        ESP_LOGE(TAG, "Not connected to device");
-        return false;
-    }
-    
-    // Check if ABF1 characteristic is discovered
-    if (bt_service->getCharHandleABF1() == 0) {
-        ESP_LOGE(TAG, "ABF1 characteristic not discovered");
-        return false;
-    }
-    
     // Create DataPacket with CALIBRATION type
     DataPacket packet;
     packet.type = DataType::CALIBRATION;

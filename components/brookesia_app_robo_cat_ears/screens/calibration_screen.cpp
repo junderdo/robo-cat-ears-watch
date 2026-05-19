@@ -96,7 +96,7 @@ CalibrationScreen::CalibrationScreen(lv_obj_t *parent)
         // Slider
         lv_obj_t *slider = lv_slider_create(sliders_container);
         lv_obj_set_size(slider, lv_pct(100), 20);
-        lv_slider_set_range(slider, -10, 10);
+        lv_slider_set_range(slider, -15, 15);
         lv_slider_set_value(slider, 0, LV_ANIM_OFF);
         
         // Store slider pointer

@@ -667,7 +667,21 @@ bool BluetoothService::writeDataPacket(const DataPacket &packet)
     std::string packed_data = packet.pack();
     
     // Determine data type name for logging
-    const char *type_name = (packet.type == DataType::ANIMATION) ? "ANIMATION" : "LIGHTING";
+    const char *type_name = "UNKNOWN";
+    switch (packet.type) {
+        case DataType::ANIMATION:
+            type_name = "ANIMATION";
+            break;
+        case DataType::LIGHTING:
+            type_name = "LIGHTING";
+            break;
+        case DataType::CALIBRATION:
+            type_name = "CALIBRATION";
+            break;
+        default:
+            break;
+    }
+
     
     ESP_LOGI(TAG, "Writing DataPacket to ABF1 (0x%04x): type=%s, data_length=%zu, total_length=%zu", 
              _char_handle_abf1, type_name, packet.data.length(), packed_data.length());
