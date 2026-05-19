@@ -35,6 +35,20 @@ using namespace esp_brookesia::systems::phone;
 
 constexpr bool EXAMPLE_SHOW_MEM_INFO = false;
 constexpr uint32_t BACKLIGHT_TIMEOUT_MS = 15000; // 15 seconds
+// Set to true to enable serial logging, false to disable
+constexpr bool DEBUG_LOG_ENABLED = true;
+
+#ifdef ESP_UTILS_LOG_TAG
+#   undef ESP_UTILS_LOG_TAG
+#endif
+#define ESP_UTILS_LOG_TAG "Main"
+
+#if !DEBUG_LOG_ENABLED
+#   define ESP_UTILS_LOGI(...)   ((void)0)
+#   define ESP_UTILS_LOGW(...)   ((void)0)
+#   define ESP_UTILS_LOGE(...)   ((void)0)
+#   define ESP_UTILS_LOGD(...)   ((void)0)
+#endif
 
 // Global system status instance
 static SystemStatus *g_system_status = nullptr;
@@ -123,6 +137,7 @@ extern "C" void app_main(void)
             "Set initial WiFi icon state failed"
         );
 
+        /* Create a task to handle battery status updates */
         lv_timer_create([](lv_timer_t *t) {
             Phone *phone = (Phone *)t->user_data;
 

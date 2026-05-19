@@ -406,7 +406,7 @@ void RoboCatEars::updateConnectionStatus()
             // Connected state
             std::string device_name = app->_bluetooth_service->getConnectedDeviceName();
             std::string address = app->_bluetooth_service->getConnectedAddress();
-            std::string status_text = "Connected\n" + device_name;
+            std::string status_text = "Connected";
             lv_label_set_text(app->_scan_screen->getStatusLabel(), status_text.c_str());
             lv_obj_set_style_text_color(app->_scan_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
