@@ -165,27 +165,11 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
 
     ESP_UTILS_LOGD("Glow screen created successfully");
     
-    // Register for service ready callback to load lighting data when device is ready
+    // Load lighting data if already connected when screen is created
     robo_cat_ears::BluetoothService *bt_service = robo_cat_ears::BluetoothService::getInstance();
-    if (bt_service) {
-        ESP_UTILS_LOGI("Registering service ready callback");
-        bt_service->setServiceReadyCallback([this]() {
-            ESP_UTILS_LOGI("Bluetooth service ready, loading lighting data");
-            loadLightingData();
-        });
-        
-        // Check current connection state for debugging
-        bool connected = bt_service->isConnected();
-        bool discovered = bt_service->isServiceDiscovered();
-        ESP_UTILS_LOGI("Connection state at GlowScreen init: connected=%d, discovered=%d", connected, discovered);
-        
-        // Load lighting data if already connected (in case screen is created after connection)
-        if (connected && discovered) {
-            ESP_UTILS_LOGI("Already connected and discovered, loading immediately");
-            loadLightingData();
-        }
-    } else {
-        ESP_UTILS_LOGW("BluetoothService instance is null!");
+    if (bt_service && bt_service->isConnected() && bt_service->isServiceDiscovered()) {
+        ESP_UTILS_LOGI("Already connected and discovered, loading lighting data immediately");
+        loadLightingData();
     }
 }
 

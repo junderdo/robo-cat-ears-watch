@@ -45,9 +45,17 @@ public:
      */
     lv_obj_t *getStatusLabel() const { return _status_label; }
 
+    /**
+     * @brief Load animation mode data from the device and update the toggle state
+     */
+    void loadAnimationModeData();
+
 private:
     lv_obj_t *_container;
     lv_obj_t *_status_label;
+    lv_obj_t *_auto_animate_switch;
+
+    bool _loading_from_device;
 
     std::function<void(const std::string&)> _on_command_clicked;
 };

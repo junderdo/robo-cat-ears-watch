@@ -317,6 +317,29 @@ bool RoboCatEars::run(void)
                 app->updateDeviceList();
             }, this);
         });
+
+        // Service ready callback - fires when BLE service is discovered after (re)connect
+        _bluetooth_service->setServiceReadyCallback([this]() {
+            ESP_UTILS_LOGI("Bluetooth service ready, loading screen data");
+            lv_async_call([](void* user_data) {
+                auto* app = static_cast<RoboCatEars*>(user_data);
+                // Load lighting data first. Animation mode data is loaded after a delay
+                // because BluetoothService only supports one pending read at a time —
+                // issuing both simultaneously overwrites the first callback.
+                if (app->_glow_screen) {
+                    app->_glow_screen->loadLightingData();
+                }
+                // Load animation mode data after 600ms to let the lighting read complete
+                lv_timer_t *timer = lv_timer_create([](lv_timer_t *t) {
+                    auto *app = static_cast<RoboCatEars*>(t->user_data);
+                    if (app->_animate_screen) {
+                        app->_animate_screen->loadAnimationModeData();
+                    }
+                    lv_timer_del(t);
+                }, 600, app);
+                lv_timer_set_repeat_count(timer, 1);
+            }, this);
+        });
     }
 
     // Initialize device list UI with current state
@@ -703,6 +726,7 @@ void RoboCatEars::switchToScreen(int screen_index)
         lv_obj_clear_flag(_animate_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
         _current_screen = 1;
         updateConnectionStatus();
+        _animate_screen->loadAnimationModeData();
     } else if (screen_index == 2) {
         lv_obj_clear_flag(_glow_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
         _current_screen = 2;
@@ -740,13 +764,18 @@ void RoboCatEars::startReconnectionTimer()
             }
         }
         
-        // Don't attempt if already connected or already scanning
+        // Don't attempt if already connected or connecting or already scanning
         if (app->_bluetooth_service->isConnected()) {
             ESP_UTILS_LOGI("Already connected, stopping reconnection timer");
             app->stopReconnectionTimer();
             return;
         }
-        
+
+        if (app->_bluetooth_service->isConnecting()) {
+            ESP_UTILS_LOGD("Connection already in progress, skipping reconnection attempt");
+            return;
+        }
+
         if (app->_bluetooth_service->isScanning()) {
             ESP_UTILS_LOGD("Still scanning, skipping reconnection attempt");
             return;
