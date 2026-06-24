@@ -33,14 +33,10 @@ public:
 private:
     lv_obj_t *_container;
     lv_obj_t *_panel;
-    lv_obj_t *_red_slider;
-    lv_obj_t *_green_slider;
-    lv_obj_t *_blue_slider;
-    lv_obj_t *_color_preview;
+    lv_obj_t *_arc;
     lv_obj_t *_confirm_btn;
     lv_obj_t *_cancel_btn;
-    
-    void updateColorPreview();
+    uint16_t _current_hue;
     
     std::function<void(uint32_t color)> _on_color_picked;
     std::function<void()> _on_modal_shown;

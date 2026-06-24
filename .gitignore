@@ -3,3 +3,6 @@ build/
 
 # esp-idf managed components / dependencies
 managed_components/
+
+# VSCode settings
+./vscode

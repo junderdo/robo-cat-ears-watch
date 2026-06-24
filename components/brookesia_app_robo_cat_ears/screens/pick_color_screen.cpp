@@ -1,4 +1,5 @@
 #include "pick_color_screen.hpp"
+#include <cmath>
 
 namespace esp_brookesia {
 namespace apps {
@@ -7,12 +8,10 @@ namespace screens {
 PickColorScreen::PickColorScreen(lv_obj_t *parent)
     : _container(nullptr)
     , _panel(nullptr)
-    , _red_slider(nullptr)
-    , _green_slider(nullptr)
-    , _blue_slider(nullptr)
-    , _color_preview(nullptr)
+    , _arc(nullptr)
     , _confirm_btn(nullptr)
     , _cancel_btn(nullptr)
+    , _current_hue(0)
     , _on_color_picked(nullptr)
     , _on_modal_shown(nullptr)
     , _on_modal_hidden(nullptr)
@@ -41,71 +40,49 @@ PickColorScreen::PickColorScreen(lv_obj_t *parent)
     lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
-    // Color preview box
-    _color_preview = lv_obj_create(_panel);
-    lv_obj_set_size(_color_preview, 80, 80);
-    lv_obj_align(_color_preview, LV_ALIGN_TOP_MID, 0, 12);
-    lv_obj_set_style_bg_color(_color_preview, lv_color_hex(0x3380B3), 0);
-    lv_obj_set_style_border_width(_color_preview, 2, 0);
-    lv_obj_set_style_border_color(_color_preview, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_radius(_color_preview, 10, 0);
+    // Color wheel arc (full circle, hue 0-359)
+    _arc = lv_arc_create(_panel);
+    lv_obj_set_size(_arc, 200, 200);
+    lv_obj_align(_arc, LV_ALIGN_CENTER, 0, 0);
+    lv_arc_set_bg_angles(_arc, 0, 360);
+    lv_arc_set_range(_arc, 0, 359);
+    lv_arc_set_value(_arc, 0);
+    lv_obj_set_style_arc_width(_arc, 30, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(_arc, 30, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(_arc, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_pad_all(_arc, 12, LV_PART_KNOB);
+    // Color the indicator and knob with the initial hue
+    lv_color_t init_color = lv_color_hsv_to_rgb(0, 100, 100);
+    lv_obj_set_style_arc_color(_arc, init_color, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(_arc, init_color, LV_PART_KNOB);
 
-    // Red slider
-    lv_obj_t *red_label = lv_label_create(_panel);
-    lv_label_set_text(red_label, "R");
-    lv_obj_align(red_label, LV_ALIGN_TOP_LEFT, 20, 110);
-    lv_obj_set_style_text_color(red_label, lv_color_hex(0xFF0000), 0);
-    
-    _red_slider = lv_slider_create(_panel);
-    lv_obj_set_size(_red_slider, lv_pct(70), 32);
-    lv_obj_align(_red_slider, LV_ALIGN_TOP_LEFT, 50, 110);
-    lv_slider_set_range(_red_slider, 0, 255);
-    lv_slider_set_value(_red_slider, 51, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(_red_slider, lv_color_hex(0xFF0000), LV_PART_INDICATOR);
-    lv_obj_add_event_cb(_red_slider, [](lv_event_t *e) {
+    lv_obj_add_event_cb(_arc, [](lv_event_t *e) {
         PickColorScreen *screen = (PickColorScreen *)lv_event_get_user_data(e);
-        if (screen) {
-            screen->updateColorPreview();
-        }
-    }, LV_EVENT_VALUE_CHANGED, this);
+        if (!screen) return;
+        lv_obj_t *arc = (lv_obj_t *)lv_event_get_target(e);
 
-    // Green slider
-    lv_obj_t *green_label = lv_label_create(_panel);
-    lv_label_set_text(green_label, "G");
-    lv_obj_align(green_label, LV_ALIGN_TOP_LEFT, 20, 170);
-    lv_obj_set_style_text_color(green_label, lv_color_hex(0x00FF00), 0);
-    
-    _green_slider = lv_slider_create(_panel);
-    lv_obj_set_size(_green_slider, lv_pct(70), 32);
-    lv_obj_align(_green_slider, LV_ALIGN_TOP_LEFT, 50, 170);
-    lv_slider_set_range(_green_slider, 0, 255);
-    lv_slider_set_value(_green_slider, 128, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(_green_slider, lv_color_hex(0x00FF00), LV_PART_INDICATOR);
-    lv_obj_add_event_cb(_green_slider, [](lv_event_t *e) {
-        PickColorScreen *screen = (PickColorScreen *)lv_event_get_user_data(e);
-        if (screen) {
-            screen->updateColorPreview();
-        }
-    }, LV_EVENT_VALUE_CHANGED, this);
+        lv_indev_t *indev = lv_indev_get_act();
+        if (!indev) return;
 
-    // Blue slider
-    lv_obj_t *blue_label = lv_label_create(_panel);
-    lv_label_set_text(blue_label, "B");
-    lv_obj_align(blue_label, LV_ALIGN_TOP_LEFT, 20, 230);
-    lv_obj_set_style_text_color(blue_label, lv_color_hex(0x0000FF), 0);
-    
-    _blue_slider = lv_slider_create(_panel);
-    lv_obj_set_size(_blue_slider, lv_pct(70), 32);
-    lv_obj_align(_blue_slider, LV_ALIGN_TOP_LEFT, 50, 230);
-    lv_slider_set_range(_blue_slider, 0, 255);
-    lv_slider_set_value(_blue_slider, 179, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(_blue_slider, lv_color_hex(0x0000FF), LV_PART_INDICATOR);
-    lv_obj_add_event_cb(_blue_slider, [](lv_event_t *e) {
-        PickColorScreen *screen = (PickColorScreen *)lv_event_get_user_data(e);
-        if (screen) {
-            screen->updateColorPreview();
-        }
-    }, LV_EVENT_VALUE_CHANGED, this);
+        lv_point_t point;
+        lv_indev_get_point(indev, &point);
+
+        lv_area_t coords;
+        lv_obj_get_coords(arc, &coords);
+        int32_t cx = (coords.x1 + coords.x2) / 2;
+        int32_t cy = (coords.y1 + coords.y2) / 2;
+
+        float angle = atan2f((float)(point.y - cy), (float)(point.x - cx)) * (180.0f / M_PI);
+        if (angle < 0.0f) angle += 360.0f;
+
+        uint16_t hue = (uint16_t)angle;
+        screen->_current_hue = hue;
+        lv_arc_set_value(arc, hue);
+
+        lv_color_t color = lv_color_hsv_to_rgb(hue, 100, 100);
+        lv_obj_set_style_arc_color(arc, color, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(arc, color, LV_PART_KNOB);
+    }, LV_EVENT_PRESSING, this);
 
     // Create button container at bottom
     lv_obj_t *btn_container = lv_obj_create(_panel);
@@ -145,10 +122,9 @@ PickColorScreen::PickColorScreen(lv_obj_t *parent)
     lv_obj_add_event_cb(_confirm_btn, [](lv_event_t *e) {
         PickColorScreen *screen = (PickColorScreen *)lv_event_get_user_data(e);
         if (screen && screen->_on_color_picked) {
-            uint8_t r = lv_slider_get_value(screen->_red_slider);
-            uint8_t g = lv_slider_get_value(screen->_green_slider);
-            uint8_t b = lv_slider_get_value(screen->_blue_slider);
-            uint32_t rgb = (r << 16) | (g << 8) | b;
+            lv_color_t color = lv_color_hsv_to_rgb(screen->_current_hue, 100, 100);
+            lv_color32_t c32 = lv_color_to_32(color, LV_OPA_COVER);
+            uint32_t rgb = ((uint32_t)c32.red << 16) | ((uint32_t)c32.green << 8) | c32.blue;
             screen->_on_color_picked(rgb);
         }
         if (screen) {
@@ -188,20 +164,6 @@ void PickColorScreen::hide()
     if (_on_modal_hidden) {
         _on_modal_hidden();
     }
-}
-
-void PickColorScreen::updateColorPreview()
-{
-    if (!_color_preview || !_red_slider || !_green_slider || !_blue_slider) {
-        return;
-    }
-    
-    uint8_t r = lv_slider_get_value(_red_slider);
-    uint8_t g = lv_slider_get_value(_green_slider);
-    uint8_t b = lv_slider_get_value(_blue_slider);
-    uint32_t rgb = (r << 16) | (g << 8) | b;
-    
-    lv_obj_set_style_bg_color(_color_preview, lv_color_hex(rgb), 0);
 }
 
 } // namespace screens
