@@ -4,4 +4,9 @@
 # CMakeLists in this exact order for cmake to work correctly
 cmake_minimum_required(VERSION 3.5)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+
+# Background services are nested a level deeper than the build system scans, so
+# their parent directory has to be named explicitly.
+set(EXTRA_COMPONENT_DIRS ${CMAKE_CURRENT_LIST_DIR}/components/services)
+
 project(esp-brookesia)
