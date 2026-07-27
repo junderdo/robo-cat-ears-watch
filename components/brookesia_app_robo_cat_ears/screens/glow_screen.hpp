@@ -89,6 +89,23 @@ public:
      */
     void clearColors();
 
+    /**
+     * @brief Set the overall LED brightness
+     *
+     * Colors shown in the UI are always the user's chosen values; brightness is
+     * applied only to the copies sent over BLE.
+     *
+     * @param brightness Brightness value (0-100)
+     */
+    void setBrightness(int brightness);
+
+    /**
+     * @brief Get the current brightness
+     *
+     * @return Brightness value (0-100)
+     */
+    int getBrightness() const { return _brightness; }
+
 private:
 
     /**
@@ -124,6 +141,27 @@ private:
      */
     void saveLightingDataToDevice();
 
+    /**
+     * @brief Update the brightness label to show the current percentage
+     */
+    void updateBrightnessLabel();
+
+    /**
+     * @brief Persist the user's colors and brightness to NVS
+     *
+     * The BLE protocol carries no brightness field and the colors written to the
+     * peripheral are already dimmed, so the peripheral cannot round-trip the
+     * user's originals. The watch is the source of truth for both.
+     */
+    void saveStateToNvs();
+
+    /**
+     * @brief Restore colors and brightness from NVS
+     *
+     * @return true if a stored color list was found
+     */
+    bool loadStateFromNvs();
+
     lv_obj_t *_container;
     lv_obj_t *_status_label;
     lv_obj_t *_add_color_btn;
@@ -138,6 +176,11 @@ private:
     int _last_reorder_from_index;  // Track last reorder indices to prevent rapid re-triggering
     int _last_reorder_to_index;
     bool _loading_from_device;  // Flag to prevent saving during initial load
+    lv_obj_t *_brightness_slider;
+    lv_obj_t *_brightness_label;
+    lv_timer_t *_brightness_debounce_timer;
+    int _brightness;  // 0-100, applied only to colors sent over BLE
+    bool _loaded_from_nvs;  // Colors came from NVS, so don't overwrite them from the device
 };
 
 } // namespace esp_brookesia::apps::screens

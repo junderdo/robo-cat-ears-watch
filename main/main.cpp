@@ -43,21 +43,12 @@ constexpr bool DEBUG_LOG_ENABLED = true;
 #endif
 #define ESP_UTILS_LOG_TAG "Main"
 
-<<<<<<< HEAD
-#if !DEBUG_LOG_ENABLED
-#   define ESP_UTILS_LOGI(...)   ((void)0)
-#   define ESP_UTILS_LOGW(...)   ((void)0)
-#   define ESP_UTILS_LOGE(...)   ((void)0)
-#   define ESP_UTILS_LOGD(...)   ((void)0)
-#endif
-=======
 // #if !DEBUG_LOG_ENABLED
 // #   define ESP_UTILS_LOGI(...)   ((void)0)
 // #   define ESP_UTILS_LOGW(...)   ((void)0)
 // #   define ESP_UTILS_LOGE(...)   ((void)0)
 // #   define ESP_UTILS_LOGD(...)   ((void)0)
 // #endif
->>>>>>> main
 
 // Global system status instance
 static SystemStatus *g_system_status = nullptr;
