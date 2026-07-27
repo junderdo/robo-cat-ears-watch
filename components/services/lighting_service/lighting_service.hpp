@@ -78,7 +78,6 @@ class LightingService {
 public:
     using DataLoadedCallback = std::function<void(const LightingData &data)>;
     
-    bool jsonToLightingData(const std::string &json, LightingData *data);
     /**
      * @brief Get singleton instance
      */

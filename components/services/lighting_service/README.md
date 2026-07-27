@@ -48,20 +48,6 @@ robo_cat_ears::LightingData data;
 service->readLightingData(&data);
 ```
 
-### JSON Format
-
-```json
-{
-  "mode": "Breathing",
-  "speed": 75,
-  "colors": [
-    {"r": 255, "g": 0, "b": 0},
-    {"r": 0, "g": 255, "b": 0},
-    {"r": 0, "g": 0, "b": 255}
-  ]
-}
-```
-
 ## Dependencies
 
 - `bluetooth_service` - For BLE communication

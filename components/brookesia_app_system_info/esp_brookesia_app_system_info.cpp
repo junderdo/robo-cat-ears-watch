@@ -108,9 +108,9 @@ void SystemInfo::updateSystemInfo()
     float temperature = _system_status->getTemperature();
 
     // Format the information text
-    char info_text[512];
-    snprintf(info_text, sizeof(info_text),
-             "System Information\n\n"
+    char watch_info_text[512];
+    snprintf(watch_info_text, sizeof(watch_info_text),
+             "Watch Sys Info\n\n"
              "Battery: %d mV\n"
              "VBUS: %d mV\n"
              "System: %d mV\n"
@@ -119,6 +119,29 @@ void SystemInfo::updateSystemInfo()
              vbus_voltage,
              system_voltage,
              temperature);
+
+
+    // Get data from the ears system status if available
+    // TODO: get ears system status from the RoboCatEars app or shared service if available
+    int ears_battery_voltage = 0;
+    int ears_vbus_voltage = 0;
+    int ears_system_voltage = 0;
+    float ears_temperature = 0.0f;
+    char ears_info_text[512];
+    snprintf(ears_info_text, sizeof(ears_info_text),
+             "Ears Sys Info\n\n"
+             "Battery: %d mV\n"
+             "VBUS: %d mV\n"
+             "System: %d mV\n"
+             "Temperature: %.1f°C",
+             ears_battery_voltage,
+             ears_vbus_voltage,
+             ears_system_voltage,
+             ears_temperature);
+
+    // Store the text in user_data temporarily before async call
+    char *text_copy = strdup(watch_info_text);
+    lv_obj_set_user_data(_info_label, text_copy);
 
     // Update using lv_async_call for thread safety (in case called from timer)
     lv_async_call([](void *user_data) {
@@ -132,10 +155,6 @@ void SystemInfo::updateSystemInfo()
             }
         }
     }, this);
-
-    // Store the text in user_data temporarily
-    char *text_copy = strdup(info_text);
-    lv_obj_set_user_data(_info_label, text_copy);
 }
 
 ESP_UTILS_REGISTER_PLUGIN_WITH_CONSTRUCTOR(systems::base::App, SystemInfo, APP_NAME, []()

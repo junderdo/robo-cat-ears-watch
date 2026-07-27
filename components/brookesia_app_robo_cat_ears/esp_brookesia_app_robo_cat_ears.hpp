@@ -13,6 +13,7 @@
 #include "screens/animate_screen.hpp"
 #include "screens/glow_screen.hpp"
 #include "screens/pick_color_screen.hpp"
+#include "screens/settings_screen.hpp"
 #include "bluetooth_service.hpp"
 
 namespace esp_brookesia::apps {
@@ -120,6 +121,7 @@ private:
     screens::AnimateScreen *_animate_screen;
     screens::GlowScreen *_glow_screen;
     screens::PickColorScreen *_pick_color_screen;
+    screens::SettingsScreen *_settings_screen;
     int _current_screen;
     robo_cat_ears::BluetoothService *_bluetooth_service;
     

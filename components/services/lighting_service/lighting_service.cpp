@@ -8,7 +8,6 @@
 #include "bluetooth_service.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "cJSON.h"
 #include "lvgl.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -180,18 +179,6 @@ bool LightingService::writeLightingData(const LightingData *data)
     BluetoothService *bt_service = BluetoothService::getInstance();
     if (!bt_service) {
         ESP_LOGE(TAG, "Failed to get Bluetooth service instance");
-        return false;
-    }
-    
-    // Check if connected
-    if (!bt_service->isConnected()) {
-        ESP_LOGE(TAG, "Not connected to device");
-        return false;
-    }
-    
-    // Check if ABF1 characteristic is discovered
-    if (bt_service->getCharHandleABF1() == 0) {
-        ESP_LOGE(TAG, "ABF1 characteristic not discovered");
         return false;
     }
     

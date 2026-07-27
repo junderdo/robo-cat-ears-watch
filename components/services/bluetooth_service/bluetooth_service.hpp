@@ -26,7 +26,9 @@ struct BleDevice {
  */
 enum class DataType : uint8_t {
     ANIMATION = 0x01,
-    LIGHTING = 0x02
+    LIGHTING = 0x02,
+    CALIBRATION = 0x03,
+    ANIMATION_MODE = 0x04
 };
 
 /**
@@ -176,6 +178,7 @@ public:
      * @brief Check if currently connected
      */
     bool isConnected() const { return _connected; }
+    bool isConnecting() const { return _connecting; }
 
     /**
      * @brief Check if currently scanning
@@ -282,6 +285,7 @@ private:
     uint8_t _char_properties_abf2;  // Properties of ABF2 characteristic
     bool _service_discovered;
     bool _mtu_configured;
+    bool _connecting;
 
     // Auto-reconnect support
     std::string _last_connected_address;

@@ -46,7 +46,7 @@ bool DataPacket::unpack(const std::string &packed, DataPacket &packet)
     packet.type = static_cast<DataType>(packed[0]);
     
     // Validate type
-    if (packet.type != DataType::ANIMATION && packet.type != DataType::LIGHTING) {
+    if (packet.type != DataType::ANIMATION && packet.type != DataType::LIGHTING && packet.type != DataType::ANIMATION_MODE) {
         return false;
     }
     
@@ -85,6 +85,7 @@ BluetoothService::BluetoothService()
     , _char_properties_abf2(0)
     , _service_discovered(false)
     , _mtu_configured(false)
+    , _connecting(false)
     , _last_connected_address("")
     , _last_connected_address_type(BLE_ADDR_TYPE_PUBLIC)
     , _last_connected_name("")
@@ -204,6 +205,7 @@ bool BluetoothService::init()
             }
             break;
         case ESP_GATTC_OPEN_EVT:
+            service->_connecting = false;
             if (param->open.status == ESP_GATT_OK) {
                 service->_connected = true;
                 service->_conn_id = param->open.conn_id;
@@ -230,6 +232,7 @@ bool BluetoothService::init()
             } else {
                 ESP_LOGE(TAG, "Connection failed, status: %d", param->open.status);
                 service->_connected = false;
+                service->_connecting = false;
                 
                 // Notify connection status via callback
                 if (service->_connection_status_callback) {
@@ -256,6 +259,7 @@ bool BluetoothService::init()
             service->_char_properties_abf2 = 0;
             service->_service_discovered = false;
             service->_mtu_configured = false;
+            service->_connecting = false;
             
             // Notify connection status via callback
             if (service->_connection_status_callback) {
@@ -518,6 +522,12 @@ bool BluetoothService::connectToDevice(const std::string &address)
         return false;
     }
 
+    // Check if a connection attempt is already in progress
+    if (_connecting) {
+        ESP_LOGW(TAG, "Connection already in progress, skipping");
+        return false;
+    }
+
     // Check if we're still connected
     if (_connected) {
         ESP_LOGW(TAG, "Still connected to previous device, forcing disconnect");
@@ -614,9 +624,11 @@ bool BluetoothService::connectToDevice(const std::string &address)
                    conn_params.remote_addr_type, conn_params.own_addr_type, conn_params.is_aux);
 
     // Initiate connection using enhanced API
+    _connecting = true;
     esp_err_t ret = esp_ble_gattc_enh_open(_gattc_if, &conn_params);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open GATT connection: %s", esp_err_to_name(ret));
+        _connecting = false;
         return false;
     }
 
@@ -667,7 +679,21 @@ bool BluetoothService::writeDataPacket(const DataPacket &packet)
     std::string packed_data = packet.pack();
     
     // Determine data type name for logging
-    const char *type_name = (packet.type == DataType::ANIMATION) ? "ANIMATION" : "LIGHTING";
+    const char *type_name = "UNKNOWN";
+    switch (packet.type) {
+        case DataType::ANIMATION:
+            type_name = "ANIMATION";
+            break;
+        case DataType::LIGHTING:
+            type_name = "LIGHTING";
+            break;
+        case DataType::CALIBRATION:
+            type_name = "CALIBRATION";
+            break;
+        default:
+            break;
+    }
+
     
     ESP_LOGI(TAG, "Writing DataPacket to ABF1 (0x%04x): type=%s, data_length=%zu, total_length=%zu", 
              _char_handle_abf1, type_name, packet.data.length(), packed_data.length());
