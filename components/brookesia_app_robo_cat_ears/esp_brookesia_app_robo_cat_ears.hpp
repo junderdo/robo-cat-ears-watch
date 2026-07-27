@@ -13,6 +13,7 @@
 #include "screens/animate_screen.hpp"
 #include "screens/glow_screen.hpp"
 #include "screens/pick_color_screen.hpp"
+#include "screens/settings_screen.hpp"
 #include "bluetooth_service.hpp"
 
 namespace esp_brookesia::apps {
@@ -33,7 +34,7 @@ public:
      * @param use_navigation_bar Flag to show the navigation bar
      * @return Pointer to the singleton instance
      */
-    static RoboCatEars *requestInstance(bool use_status_bar = false, bool use_navigation_bar = false);
+    static RoboCatEars *requestInstance(bool use_status_bar = true, bool use_navigation_bar = false);
 
     /**
      * @brief Destructor for the phone app
@@ -92,21 +93,41 @@ private:
     void updateConnectionStatus();
 
     /**
+     * @brief Update the Bluetooth status bar icon
+     *
+     * @param connected true if connected, false if disconnected
+     */
+    void updateBluetoothStatusIcon(bool connected);
+
+    /**
      * @brief Switch to a specific screen
      *
      * @param screen_index 0 for scan screen, 1 for control screen
      */
     void switchToScreen(int screen_index);
 
+    /**
+     * @brief Start the auto-reconnection timer
+     */
+    void startReconnectionTimer();
 
+    /**
+     * @brief Stop the auto-reconnection timer
+     */
+    void stopReconnectionTimer();
 
     static RoboCatEars *_instance;
     screens::ScanScreen *_scan_screen;
     screens::AnimateScreen *_animate_screen;
     screens::GlowScreen *_glow_screen;
     screens::PickColorScreen *_pick_color_screen;
+    screens::SettingsScreen *_settings_screen;
     int _current_screen;
     robo_cat_ears::BluetoothService *_bluetooth_service;
+    
+    // Auto-reconnection support
+    lv_timer_t *_reconnection_timer;
+    std::string _last_disconnected_address;
     
     // Modal state tracking
     bool _modal_is_open;

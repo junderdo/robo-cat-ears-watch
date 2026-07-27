@@ -78,7 +78,7 @@ constexpr StatusBar::Data STYLESHEET_410_502_DARK_STATUS_BAR_DATA = {
         .enable_battery_label = 0,
         .enable_wifi_icon = 1,
         .enable_wifi_icon_common_size = 1,
-        .enable_clock = 1,
+        .enable_clock = 0,
     },
 };
 

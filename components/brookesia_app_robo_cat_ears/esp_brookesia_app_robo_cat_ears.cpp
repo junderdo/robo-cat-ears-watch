@@ -19,6 +19,12 @@
 #include <cstring>
 #include <algorithm>
 
+// External reference to global phone instance (declared in main.cpp)
+namespace esp_brookesia::systems::phone {
+    class Phone;
+}
+extern esp_brookesia::systems::phone::Phone *g_phone;
+
 #define APP_NAME "ROBO_CAT_EARS"
 
 using namespace std;
@@ -45,8 +51,11 @@ RoboCatEars::RoboCatEars(bool use_status_bar, bool use_navigation_bar):
     _animate_screen(nullptr),
     _glow_screen(nullptr),
     _pick_color_screen(nullptr),
+    _settings_screen(nullptr),
     _current_screen(0),
     _bluetooth_service(nullptr),
+    _reconnection_timer(nullptr),
+    _last_disconnected_address(""),
     _modal_is_open(false)
 {
 }
@@ -71,6 +80,10 @@ RoboCatEars::~RoboCatEars()
     if (_pick_color_screen) {
         delete _pick_color_screen;
         _pick_color_screen = nullptr;
+    }
+    if (_settings_screen) {
+        delete _settings_screen;
+        _settings_screen = nullptr;
     }
 }
 
@@ -100,6 +113,9 @@ bool RoboCatEars::init()
 bool RoboCatEars::deinit()
 {
     ESP_UTILS_LOGD("Deinit");
+
+    // Stop auto-reconnection timer
+    stopReconnectionTimer();
 
     // Disconnect from any connected device before cleanup
     if (_bluetooth_service && _bluetooth_service->isConnected()) {
@@ -186,6 +202,8 @@ bool RoboCatEars::run(void)
 
     _glow_screen = new screens::GlowScreen(screen);
 
+    _settings_screen = new screens::SettingsScreen(screen);
+
     // Create pick color screen (modal, not part of swipe navigation)
     _pick_color_screen = new screens::PickColorScreen(screen);
 
@@ -226,11 +244,11 @@ bool RoboCatEars::run(void)
         
         if (dir == LV_DIR_LEFT) {
             // Swipe left - go to next screen (circular)
-            int next_screen = (app->_current_screen + 1) % 3;
+            int next_screen = (app->_current_screen + 1) % 4;
             app->switchToScreen(next_screen);
         } else if (dir == LV_DIR_RIGHT) {
             // Swipe right - go to previous screen (circular)
-            int prev_screen = (app->_current_screen - 1 + 3) % 3;
+            int prev_screen = (app->_current_screen - 1 + 4) % 4;
             app->switchToScreen(prev_screen);
         }
     }, LV_EVENT_GESTURE, nullptr);
@@ -248,11 +266,22 @@ bool RoboCatEars::run(void)
         
         // Connection status callback
         _bluetooth_service->setConnectionStatusCallback([this](bool connected, const std::string &device_name, const std::string &address) {
+            // Update Bluetooth status bar icon
+            updateBluetoothStatusIcon(connected);
+            
+            // Stop reconnection timer on successful connection
+            if (connected) {
+                lv_async_call([](void* user_data) {
+                    auto* app = static_cast<RoboCatEars*>(user_data);
+                    app->stopReconnectionTimer();
+                }, this);
+            }
+            
             // Defer LVGL operations to avoid blocking BLE task
+            // updateConnectionStatus() will handle updating the device list internally
             lv_async_call([](void* user_data) {
                 auto* app = static_cast<RoboCatEars*>(user_data);
                 app->updateConnectionStatus();
-                app->updateDeviceList();  // Refresh device list to update highlighting
             }, this);
             
             // Auto-switch to animate screen on successful connection (deferred to LVGL task)
@@ -265,12 +294,50 @@ bool RoboCatEars::run(void)
             }
         });
         
+        // Disconnection callback - start auto-reconnection
+        _bluetooth_service->setDisconnectionCallback([this](const std::string &device_name, const std::string &address) {
+            ESP_UTILS_LOGI("Disconnection detected for %s (%s), starting auto-reconnection", 
+                          device_name.c_str(), address.c_str());
+            
+            // Store the disconnected device address for reconnection
+            lv_async_call([](void* user_data) {
+                auto* app = static_cast<RoboCatEars*>(user_data);
+                if (app->_bluetooth_service) {
+                    app->_last_disconnected_address = app->_bluetooth_service->getLastConnectedAddress();
+                    app->startReconnectionTimer();
+                }
+            }, this);
+        });
+        
         // Scanning status callback
         _bluetooth_service->setScanningStatusCallback([this](bool scanning) {
             // Defer LVGL operations to avoid blocking BLE task
             lv_async_call([](void* user_data) {
                 auto* app = static_cast<RoboCatEars*>(user_data);
                 app->updateDeviceList();
+            }, this);
+        });
+
+        // Service ready callback - fires when BLE service is discovered after (re)connect
+        _bluetooth_service->setServiceReadyCallback([this]() {
+            ESP_UTILS_LOGI("Bluetooth service ready, loading screen data");
+            lv_async_call([](void* user_data) {
+                auto* app = static_cast<RoboCatEars*>(user_data);
+                // Load lighting data first. Animation mode data is loaded after a delay
+                // because BluetoothService only supports one pending read at a time —
+                // issuing both simultaneously overwrites the first callback.
+                if (app->_glow_screen) {
+                    app->_glow_screen->loadLightingData();
+                }
+                // Load animation mode data after 600ms to let the lighting read complete
+                lv_timer_t *timer = lv_timer_create([](lv_timer_t *t) {
+                    auto *app = static_cast<RoboCatEars*>(t->user_data);
+                    if (app->_animate_screen) {
+                        app->_animate_screen->loadAnimationModeData();
+                    }
+                    lv_timer_del(t);
+                }, 600, app);
+                lv_timer_set_repeat_count(timer, 1);
             }, this);
         });
     }
@@ -297,6 +364,9 @@ bool RoboCatEars::run(void)
 bool RoboCatEars::back(void)
 {
     ESP_UTILS_LOGD("Back");
+
+    // Stop auto-reconnection timer
+    stopReconnectionTimer();
 
     // Disconnect from any connected device before exiting
     if (_bluetooth_service && _bluetooth_service->isConnected()) {
@@ -366,25 +436,32 @@ void RoboCatEars::updateConnectionStatus()
             // Connected state
             std::string device_name = app->_bluetooth_service->getConnectedDeviceName();
             std::string address = app->_bluetooth_service->getConnectedAddress();
-            std::string status_text = "Connected\n" + device_name;
+            std::string status_text = "Connected";
             lv_label_set_text(app->_scan_screen->getStatusLabel(), status_text.c_str());
             lv_obj_set_style_text_color(app->_scan_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
             // Update connected device for highlighting in device list
             app->_scan_screen->setConnectedDevice(address.c_str());
             
-            // Update animate screen status label too
+            // Update animate screen status label
             lv_label_set_text(app->_animate_screen->getStatusLabel(), status_text.c_str());
             lv_obj_set_style_text_color(app->_animate_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
-            // Update glow screen status label too
+            // Update glow screen status label
             lv_label_set_text(app->_glow_screen->getStatusLabel(), status_text.c_str());
             lv_obj_set_style_text_color(app->_glow_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
+
+            // Update settings screen status label
+            lv_label_set_text(app->_settings_screen->getStatusLabel(), status_text.c_str());
+            lv_obj_set_style_text_color(app->_settings_screen->getStatusLabel(), lv_color_hex(0x00FF00), 0);
             
             // Show disconnect button, hide scan button
             lv_obj_clear_flag(app->_scan_screen->getDisconnectButton(), LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(app->_scan_screen->getScanButton(), LV_OBJ_FLAG_HIDDEN);
             ESP_UTILS_LOGD("UI updated: showing connected status and disconnect button");
+            
+            // Force refresh the device list after setting connected device
+            app->updateDeviceList();
         } else {
             // Disconnected state
             lv_label_set_text(app->_scan_screen->getStatusLabel(), "Not connected");
@@ -392,21 +469,66 @@ void RoboCatEars::updateConnectionStatus()
             
             // Clear connected device for device list
             app->_scan_screen->setConnectedDevice(nullptr);
+            ESP_UTILS_LOGD("Cleared connected device address");
             
-            // Update animate screen status label too
+            // Update animate screen status label
             lv_label_set_text(app->_animate_screen->getStatusLabel(), "Not connected");
             lv_obj_set_style_text_color(app->_animate_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
             
-            // Update glow screen status label too
+            // Update glow screen status label
             lv_label_set_text(app->_glow_screen->getStatusLabel(), "Not connected");
             lv_obj_set_style_text_color(app->_glow_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
+
+            // Update settings screen status label
+            lv_label_set_text(app->_settings_screen->getStatusLabel(), "Not connected");
+            lv_obj_set_style_text_color(app->_settings_screen->getStatusLabel(), lv_color_hex(0x808080), 0);
             
             // Show scan button, hide disconnect button
             lv_obj_clear_flag(app->_scan_screen->getScanButton(), LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(app->_scan_screen->getDisconnectButton(), LV_OBJ_FLAG_HIDDEN);
             ESP_UTILS_LOGD("UI updated: showing disconnected status and scan button");
+            
+            // Force refresh the device list after clearing connected device
+            // This ensures the list is updated with the cleared connection state
+            app->updateDeviceList();
         }
     }, this);
+}
+
+void RoboCatEars::updateBluetoothStatusIcon(bool connected)
+{
+    if (!g_phone) {
+        ESP_UTILS_LOGW("Cannot update Bluetooth icon: phone instance not available");
+        return;
+    }
+
+    ESP_UTILS_LOGD("Updating Bluetooth status icon (WiFi icon): %s", connected ? "connected" : "disconnected");
+
+    // Use WiFi icon state: 0 = disconnected (X icon), 3 = connected (full bars)
+    // Use lv_async_call for thread safety
+    struct IconUpdateData {
+        bool connected;
+    };
+    
+    IconUpdateData *data = new IconUpdateData{connected};
+    
+    lv_async_call([](void *user_data) {
+        IconUpdateData *data = static_cast<IconUpdateData*>(user_data);
+        
+        if (g_phone) {
+            // State 0: Disconnected (X icon), State 3: Connected (full bars)
+            int state = data->connected ? 3 : 0;
+            bool result = g_phone->getDisplay().getStatusBar()->setWifiIconState(state);
+            if (result) {
+                ESP_UTILS_LOGD("WiFi icon (repurposed for Bluetooth) updated to state %d: %s", 
+                               state, data->connected ? "connected" : "disconnected");
+            } else {
+                ESP_UTILS_LOGE("Failed to update WiFi icon state");
+            }
+        }
+        
+        delete data;
+    }, data);
 }
 
 void RoboCatEars::updateDeviceList()
@@ -585,7 +707,7 @@ void RoboCatEars::switchToScreen(int screen_index)
 {
     ESP_UTILS_LOGD("Switching to screen %d", screen_index);
     
-    if (!_scan_screen || !_animate_screen || !_glow_screen) {
+    if (!_scan_screen || !_animate_screen || !_glow_screen || !_settings_screen) {
         ESP_UTILS_LOGE("Screens not initialized");
         return;
     }
@@ -594,6 +716,7 @@ void RoboCatEars::switchToScreen(int screen_index)
     lv_obj_add_flag(_scan_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(_animate_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(_glow_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(_settings_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
     
     // Show the selected screen
     if (screen_index == 0) {
@@ -603,16 +726,85 @@ void RoboCatEars::switchToScreen(int screen_index)
         lv_obj_clear_flag(_animate_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
         _current_screen = 1;
         updateConnectionStatus();
+        _animate_screen->loadAnimationModeData();
     } else if (screen_index == 2) {
         lv_obj_clear_flag(_glow_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
         _current_screen = 2;
         updateConnectionStatus();
+    } else if (screen_index == 3) {
+        lv_obj_clear_flag(_settings_screen->getContainer(), LV_OBJ_FLAG_HIDDEN);
+        _current_screen = 3;
+    }
+}
+
+void RoboCatEars::startReconnectionTimer()
+{
+    // Stop existing timer if any
+    stopReconnectionTimer();
+    
+    ESP_UTILS_LOGI("Starting auto-reconnection timer (will retry every 5 seconds)");
+    
+    // Create timer that attempts reconnection every 5 seconds
+    _reconnection_timer = lv_timer_create([](lv_timer_t *t) {
+        RoboCatEars *app = (RoboCatEars *)t->user_data;
+        if (!app || !app->_bluetooth_service) {
+            return;
+        }
+        
+        // Check if backlight is on by checking display inactive time
+        lv_disp_t *disp = lv_disp_get_default();
+        if (disp) {
+            uint32_t inactive_time = lv_disp_get_inactive_time(disp);
+            const uint32_t BACKLIGHT_TIMEOUT_MS = 15000;
+            
+            // Don't attempt reconnection if backlight is off (device is idle)
+            if (inactive_time >= BACKLIGHT_TIMEOUT_MS) {
+                ESP_UTILS_LOGD("Backlight is off (inactive %lu ms), skipping reconnection attempt", inactive_time);
+                return;
+            }
+        }
+        
+        // Don't attempt if already connected or connecting or already scanning
+        if (app->_bluetooth_service->isConnected()) {
+            ESP_UTILS_LOGI("Already connected, stopping reconnection timer");
+            app->stopReconnectionTimer();
+            return;
+        }
+
+        if (app->_bluetooth_service->isConnecting()) {
+            ESP_UTILS_LOGD("Connection already in progress, skipping reconnection attempt");
+            return;
+        }
+
+        if (app->_bluetooth_service->isScanning()) {
+            ESP_UTILS_LOGD("Still scanning, skipping reconnection attempt");
+            return;
+        }
+        
+        // Try to reconnect to the last disconnected device
+        if (!app->_last_disconnected_address.empty()) {
+            ESP_UTILS_LOGI("Auto-reconnection: attempting to reconnect to %s", 
+                          app->_last_disconnected_address.c_str());
+            app->_bluetooth_service->connectToDevice(app->_last_disconnected_address);
+        } else {
+            ESP_UTILS_LOGW("Auto-reconnection: no last disconnected address available");
+            app->stopReconnectionTimer();
+        }
+    }, 5000, this);  // Retry every 5 seconds
+}
+
+void RoboCatEars::stopReconnectionTimer()
+{
+    if (_reconnection_timer) {
+        ESP_UTILS_LOGI("Stopping auto-reconnection timer");
+        lv_timer_del(_reconnection_timer);
+        _reconnection_timer = nullptr;
     }
 }
 
 ESP_UTILS_REGISTER_PLUGIN_WITH_CONSTRUCTOR(systems::base::App, RoboCatEars, APP_NAME, []()
 {
-    return std::shared_ptr<RoboCatEars>(RoboCatEars::requestInstance(), [](RoboCatEars * p) {});
+    return std::shared_ptr<RoboCatEars>(RoboCatEars::requestInstance(true, false), [](RoboCatEars * p) {});
 })
 
 } // namespace esp_brookesia::apps

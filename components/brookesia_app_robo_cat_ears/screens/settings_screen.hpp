@@ -1,5 +1,5 @@
 /*
- * Description: Animate screen for Robo cat ears controller app
+ * Description: Settings screen for Robo cat ears controller app
  * Author: Jeff Underdown (junderdo)
  * Copyright (C) 2026 Milk Lab Creations
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -7,29 +7,28 @@
 #pragma once
 
 #include "lvgl.h"
+#include "calibration_screen.hpp"
+#include <memory>
 #include <functional>
-#include <string>
 
 namespace esp_brookesia::apps::screens {
 
 /**
- * @brief Animate screen containing command buttons for the robo cat ears
+ * @brief Settings screen containing configuration options for the robo cat ears
  */
-class AnimateScreen {
+class SettingsScreen {
 public:
     /**
-     * @brief Constructor - creates the animate screen UI
+     * @brief Constructor - creates the settings screen UI
      *
      * @param parent_screen The parent LVGL screen object
-     * @param on_command_clicked Callback for when a command button is clicked, receives command string
      */
-    AnimateScreen(lv_obj_t *parent_screen,
-                  std::function<void(const std::string&)> on_command_clicked);
+    SettingsScreen(lv_obj_t *parent_screen);
 
     /**
      * @brief Destructor
      */
-    ~AnimateScreen();
+    ~SettingsScreen();
 
     /**
      * @brief Get the container object for this screen
@@ -46,18 +45,19 @@ public:
     lv_obj_t *getStatusLabel() const { return _status_label; }
 
     /**
-     * @brief Load animation mode data from the device and update the toggle state
+     * @brief Set the callback for when servo calibration is confirmed
+     *
+     * @param callback Function to call with calibration values (left_azi, left_lat, right_azi, right_lat)
      */
-    void loadAnimationModeData();
+    void setOnServoCalibrationConfirmed(std::function<void(int, int, int, int)> callback) {
+        _on_servo_calib_confirmed = callback;
+    }
 
 private:
     lv_obj_t *_container;
     lv_obj_t *_status_label;
-    lv_obj_t *_auto_animate_switch;
-
-    bool _loading_from_device;
-
-    std::function<void(const std::string&)> _on_command_clicked;
+    std::unique_ptr<CalibrationScreen> _calibration_screen;
+    std::function<void(int, int, int, int)> _on_servo_calib_confirmed;
 };
 
 } // namespace esp_brookesia::apps::screens

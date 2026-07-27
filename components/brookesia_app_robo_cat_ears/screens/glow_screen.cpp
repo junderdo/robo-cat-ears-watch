@@ -49,12 +49,12 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     lv_obj_set_style_text_color(_status_label, lv_color_hex(0x808080), 0);
     lv_obj_set_style_text_font(_status_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_align(_status_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(_status_label, LV_ALIGN_TOP_MID, 0, 15);
+    lv_obj_align(_status_label, LV_ALIGN_TOP_MID, 0, 36);
 
     // Create a scrollable container for the color list
     _color_list_container = lv_obj_create(_container);
     lv_obj_set_size(_color_list_container, lv_pct(90), 200);
-    lv_obj_align(_color_list_container, LV_ALIGN_TOP_MID, 0, 60);
+    lv_obj_align(_color_list_container, LV_ALIGN_TOP_MID, 0, 70);
     lv_obj_set_style_bg_opa(_color_list_container, LV_OPA_10, 0);
     lv_obj_set_style_border_width(_color_list_container, 1, 0);
     lv_obj_set_style_border_color(_color_list_container, lv_color_hex(0x404040), 0);
@@ -165,27 +165,11 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
 
     ESP_UTILS_LOGD("Glow screen created successfully");
     
-    // Register for service ready callback to load lighting data when device is ready
+    // Load lighting data if already connected when screen is created
     robo_cat_ears::BluetoothService *bt_service = robo_cat_ears::BluetoothService::getInstance();
-    if (bt_service) {
-        ESP_UTILS_LOGI("Registering service ready callback");
-        bt_service->setServiceReadyCallback([this]() {
-            ESP_UTILS_LOGI("Bluetooth service ready, loading lighting data");
-            loadLightingData();
-        });
-        
-        // Check current connection state for debugging
-        bool connected = bt_service->isConnected();
-        bool discovered = bt_service->isServiceDiscovered();
-        ESP_UTILS_LOGI("Connection state at GlowScreen init: connected=%d, discovered=%d", connected, discovered);
-        
-        // Load lighting data if already connected (in case screen is created after connection)
-        if (connected && discovered) {
-            ESP_UTILS_LOGI("Already connected and discovered, loading immediately");
-            loadLightingData();
-        }
-    } else {
-        ESP_UTILS_LOGW("BluetoothService instance is null!");
+    if (bt_service && bt_service->isConnected() && bt_service->isServiceDiscovered()) {
+        ESP_UTILS_LOGI("Already connected and discovered, loading lighting data immediately");
+        loadLightingData();
     }
 }
 

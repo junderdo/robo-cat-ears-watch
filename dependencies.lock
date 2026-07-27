@@ -158,7 +158,7 @@ dependencies:
       type: service
     version: 1.2.1
   espressif/esp_lcd_touch_ft5x06:
-    component_hash: 8ae101b4a321b6327d98751b049e3c7fff2718ad04d676259369ff85d4edbcdf
+    component_hash: cb8247f88952ab71236110b92b15f1a4360453f9faaf516234908de27cece8ee
     dependencies:
     - name: espressif/esp_lcd_touch
       registry_url: https://components.espressif.com
@@ -170,13 +170,13 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.1.0~1
+    version: 1.1.0~2
   espressif/esp_lvgl_port:
-    component_hash: b6360960f47b6776462e7092861b3ea66477ffb762a01baa0aecbb3d74cd50f4
+    component_hash: fb6c1fdfe70d4ca39a035d63ca394a35f17ec84ce16ff98ecb13a54155d75da4
     dependencies:
     - name: idf
       require: private
-      version: '>=5.1'
+      version: '>=5.2'
     - name: lvgl/lvgl
       registry_url: https://components.espressif.com
       require: public
@@ -184,7 +184,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 2.7.2
+    version: 2.8.0~1
   espressif/esp_mmap_assets:
     component_hash: b47cf5249d7a7ba8448f165c6de395503a2c2695769ff6d3fa06f2fa4595b270
     dependencies:
@@ -200,7 +200,7 @@ dependencies:
       type: service
     version: 1.3.2
   espressif/esp_websocket_client:
-    component_hash: 3fb288702517ef4d75bf933a115f1056ee0c2540d964f9e1d856e0bb67e1dfeb
+    component_hash: dc00233af846f3a744ada283a300e0d586040aadc3ee67361645ecdce4523672
     dependencies:
     - name: idf
       require: private
@@ -208,7 +208,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 1.7.0
+    version: 1.8.0
   espressif/gmf_ai_audio:
     component_hash: 06bf4ff0d1eacf78e0e87d625da3b74becca7e2ccdb59a14accbb5ecc405697e
     dependencies:
@@ -338,7 +338,7 @@ dependencies:
     - esp32s3
     version: 1.0.6
   waveshare/esp_lcd_sh8601:
-    component_hash: 1a2829e9db4e0515bad6ce83368f199dec60519fbba40251d6c8249f5d070ae1
+    component_hash: af135de8ee4a036bcff17bde98e6a96e02202d388fecf6004363e3d3e047943a
     dependencies:
     - name: espressif/cmake_utilities
       registry_url: https://components.espressif.com
@@ -350,7 +350,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.0.2
+    version: 2.0.0
 direct_dependencies:
 - espressif/brookesia_core
 - espressif/cmake_utilities
@@ -369,6 +369,6 @@ direct_dependencies:
 - idf
 - lvgl/lvgl
 - waveshare/esp32_s3_touch_amoled_2_06
-manifest_hash: 87b014b781ba759cc0765d0ae51d2bef0c118fd8f23146ba9997a2cda8a34255
+manifest_hash: 8e389e06b2fcbb31504e89f95290f93fc94699c7fb57ccaa356c13aec141f0c2
 target: esp32s3
 version: 2.0.0
