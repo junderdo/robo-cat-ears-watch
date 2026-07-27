@@ -7,7 +7,9 @@
 #include "glow_screen.hpp"
 #include "lighting_service.hpp"
 #include "bluetooth_service.hpp"
+#include "nvs.h"
 #include <cstdio>
+#include <cmath>
 
 #ifdef ESP_UTILS_LOG_TAG
 #   undef ESP_UTILS_LOG_TAG
@@ -16,6 +18,33 @@
 #include "esp_lib_utils.h"
 
 namespace esp_brookesia::apps::screens {
+
+namespace {
+
+constexpr const char *NVS_NAMESPACE = "glow";
+constexpr const char *NVS_KEY_COLORS = "colors";
+constexpr const char *NVS_KEY_BRIGHT = "brightness";
+
+// Perceived LED output rises roughly as the 2.2 power of drive level, so the
+// slider position is raised to that power to make its travel feel even. If the
+// peripheral firmware already gamma-corrects incoming RGB, this double-applies
+// and the low end of the slider will be unusable - drop this to 1.0 if so.
+constexpr float BRIGHTNESS_GAMMA = 2.2f;
+
+// The translation layer: a color the user picked -> the color actually sent.
+uint32_t applyBrightness(uint32_t rgb, int brightness)
+{
+    if (brightness >= 100) return rgb;
+    if (brightness <= 0) return 0;
+
+    const float f = powf(brightness / 100.0f, BRIGHTNESS_GAMMA);
+    const uint32_t r = (uint32_t)lroundf(((rgb >> 16) & 0xFF) * f);
+    const uint32_t g = (uint32_t)lroundf(((rgb >> 8) & 0xFF) * f);
+    const uint32_t b = (uint32_t)lroundf((rgb & 0xFF) * f);
+    return (r << 16) | (g << 8) | b;
+}
+
+} // namespace
 
 GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     : _container(nullptr),
@@ -29,7 +58,12 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
       _current_speed(50),
       _last_reorder_from_index(-1),
       _last_reorder_to_index(-1),
-      _loading_from_device(false)
+      _loading_from_device(false),
+      _brightness_slider(nullptr),
+      _brightness_label(nullptr),
+      _brightness_debounce_timer(nullptr),
+      _brightness(100),
+      _loaded_from_nvs(false)
 {
     ESP_UTILS_LOGD("Creating glow screen");
 
@@ -53,7 +87,7 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
 
     // Create a scrollable container for the color list
     _color_list_container = lv_obj_create(_container);
-    lv_obj_set_size(_color_list_container, lv_pct(90), 200);
+    lv_obj_set_size(_color_list_container, lv_pct(90), 150);
     lv_obj_align(_color_list_container, LV_ALIGN_TOP_MID, 0, 70);
     lv_obj_set_style_bg_opa(_color_list_container, LV_OPA_10, 0);
     lv_obj_set_style_border_width(_color_list_container, 1, 0);
@@ -66,10 +100,48 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     // Enable layout animations (600ms for smooth, visible animation)
     lv_obj_set_style_anim_time(_color_list_container, 600, 0);
 
+    // Overall brightness. Applied only to the colors written over BLE - the
+    // swatches above always show what the user actually picked.
+    _brightness_label = lv_label_create(_container);
+    lv_obj_set_style_text_font(_brightness_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(_brightness_label, lv_color_hex(0xC0C0C0), 0);
+    lv_obj_align(_brightness_label, LV_ALIGN_TOP_LEFT, 20, 228);
+
+    _brightness_slider = lv_slider_create(_container);
+    lv_obj_set_size(_brightness_slider, lv_pct(80), 24);
+    lv_obj_align(_brightness_slider, LV_ALIGN_TOP_MID, 0, 256);
+    lv_slider_set_range(_brightness_slider, 0, 100);
+    lv_slider_set_value(_brightness_slider, _brightness, LV_ANIM_OFF);
+
+    // Debounced so dragging doesn't flood the BLE link - matches the speed
+    // slider's pattern in modes_screen.
+    lv_obj_add_event_cb(_brightness_slider, [](lv_event_t *e) {
+        GlowScreen *screen = (GlowScreen *)lv_event_get_user_data(e);
+        if (!screen) return;
+
+        // Track the label live so dragging gives immediate feedback.
+        screen->_brightness = lv_slider_get_value(screen->_brightness_slider);
+        screen->updateBrightnessLabel();
+
+        if (screen->_brightness_debounce_timer) {
+            lv_timer_del(screen->_brightness_debounce_timer);
+            screen->_brightness_debounce_timer = nullptr;
+        }
+
+        screen->_brightness_debounce_timer = lv_timer_create([](lv_timer_t *timer) {
+            GlowScreen *screen = (GlowScreen *)lv_timer_get_user_data(timer);
+            if (screen) {
+                screen->_brightness_debounce_timer = nullptr;
+                screen->setBrightness(lv_slider_get_value(screen->_brightness_slider));
+            }
+        }, 300, screen);
+        lv_timer_set_repeat_count(screen->_brightness_debounce_timer, 1);
+    }, LV_EVENT_VALUE_CHANGED, this);
+
     // Create "Add Color" button (below color list)
     _add_color_btn = lv_btn_create(_container);
     lv_obj_set_size(_add_color_btn, 260, 60);
-    lv_obj_align(_add_color_btn, LV_ALIGN_TOP_MID, 0, 275);
+    lv_obj_align(_add_color_btn, LV_ALIGN_TOP_MID, 0, 290);
 
     lv_obj_t *add_label = lv_label_create(_add_color_btn);
     lv_label_set_text(add_label, LV_SYMBOL_PLUS " Add Color");
@@ -163,8 +235,17 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     lv_obj_set_style_text_color(trash_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(trash_label);
 
+    // Restore the user's own colors and brightness before touching the device.
+    // These are authoritative: the peripheral only ever sees dimmed copies.
+    _loaded_from_nvs = loadStateFromNvs();
+    lv_slider_set_value(_brightness_slider, _brightness, LV_ANIM_OFF);
+    updateBrightnessLabel();
+    if (_loaded_from_nvs) {
+        updateColorList();
+        ESP_UTILS_LOGI("Restored %zu colors and brightness %d%% from NVS", _colors.size(), _brightness);
+    }
+
     ESP_UTILS_LOGD("Glow screen created successfully");
-    
     // Load lighting data if already connected when screen is created
     robo_cat_ears::BluetoothService *bt_service = robo_cat_ears::BluetoothService::getInstance();
     if (bt_service && bt_service->isConnected() && bt_service->isServiceDiscovered()) {
@@ -175,7 +256,13 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
 
 GlowScreen::~GlowScreen()
 {
-    // LVGL objects are automatically cleaned up when parent is deleted
+    // LVGL objects are automatically cleaned up when parent is deleted, but a
+    // timer is not parented to one - a pending debounce would fire into a
+    // destroyed screen.
+    if (_brightness_debounce_timer) {
+        lv_timer_del(_brightness_debounce_timer);
+        _brightness_debounce_timer = nullptr;
+    }
 }
 
 void GlowScreen::addColor(uint32_t color)
@@ -612,24 +699,36 @@ void GlowScreen::loadLightingData()
         
         // Set flag to prevent saving while loading
         _loading_from_device = true;
-        
-        // Apply the loaded data to the UI
-        // 1. Clear existing colors
-        clearColors();
-        
-        // 2. Add colors from loaded data
-        for (const auto &color : data.colors) {
-            addColor(color.toUint32());
+
+        // 1+2. Colors. The peripheral only holds brightness-dimmed copies, so
+        // adopting them would overwrite the user's originals with darker values
+        // and darken them again on every reconnect. Take them only when we have
+        // nothing of our own - a first run, or a device we've not seen before.
+        if (!_loaded_from_nvs) {
+            clearColors();
+            for (const auto &color : data.colors) {
+                addColor(color.toUint32());
+            }
+        } else {
+            ESP_UTILS_LOGI("Keeping %zu colors from NVS, ignoring the device's dimmed copies",
+                           _colors.size());
         }
-        
-        // 3. Set mode and speed
+
+        // 3. Set mode and speed. These round-trip losslessly, so the device
+        // stays authoritative for them.
         const char *mode_str = robo_cat_ears::LightingService::modeToString(data.mode);
         setMode(mode_str);
         setSpeed(data.speed);
-        
+
         // Clear flag after loading complete
         _loading_from_device = false;
-        
+
+        // Adopting the device's colors makes them ours from here on.
+        if (!_loaded_from_nvs && !_colors.empty()) {
+            _loaded_from_nvs = true;
+            saveStateToNvs();
+        }
+
         ESP_UTILS_LOGI("Lighting data applied to UI from callback");
     })) {
         ESP_UTILS_LOGW("Failed to read lighting data from device");
@@ -695,13 +794,96 @@ void GlowScreen::clearColors()
     ESP_UTILS_LOGD("Colors cleared");
 }
 
+void GlowScreen::updateBrightnessLabel()
+{
+    if (!_brightness_label) {
+        return;
+    }
+    char text[32];
+    snprintf(text, sizeof(text), "Brightness  %d%%", _brightness);
+    lv_label_set_text(_brightness_label, text);
+}
+
+void GlowScreen::setBrightness(int brightness)
+{
+    if (brightness < 0) brightness = 0;
+    if (brightness > 100) brightness = 100;
+
+    const bool changed = (_brightness != brightness);
+    _brightness = brightness;
+    updateBrightnessLabel();
+
+    if (changed) {
+        ESP_UTILS_LOGI("Brightness set to %d%%", _brightness);
+        saveLightingDataToDevice();
+    }
+}
+
+void GlowScreen::saveStateToNvs()
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_UTILS_LOGW("Failed to open NVS for writing: %s", esp_err_to_name(err));
+        return;
+    }
+
+    nvs_set_u8(handle, NVS_KEY_BRIGHT, (uint8_t)_brightness);
+
+    // A zero-length blob isn't valid, so an empty list is stored as "no key".
+    if (_colors.empty()) {
+        nvs_erase_key(handle, NVS_KEY_COLORS);
+    } else {
+        nvs_set_blob(handle, NVS_KEY_COLORS, _colors.data(), _colors.size() * sizeof(uint32_t));
+    }
+
+    err = nvs_commit(handle);
+    if (err != ESP_OK) {
+        ESP_UTILS_LOGW("Failed to commit NVS: %s", esp_err_to_name(err));
+    }
+    nvs_close(handle);
+}
+
+bool GlowScreen::loadStateFromNvs()
+{
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) {
+        ESP_UTILS_LOGD("No stored glow state in NVS");
+        return false;
+    }
+
+    uint8_t stored_brightness = 100;
+    if (nvs_get_u8(handle, NVS_KEY_BRIGHT, &stored_brightness) == ESP_OK) {
+        _brightness = (stored_brightness > 100) ? 100 : stored_brightness;
+    }
+
+    bool have_colors = false;
+    size_t length = 0;
+    if (nvs_get_blob(handle, NVS_KEY_COLORS, nullptr, &length) == ESP_OK &&
+        length >= sizeof(uint32_t)) {
+        _colors.resize(length / sizeof(uint32_t));
+        if (nvs_get_blob(handle, NVS_KEY_COLORS, _colors.data(), &length) == ESP_OK) {
+            have_colors = true;
+        } else {
+            _colors.clear();
+        }
+    }
+
+    nvs_close(handle);
+    return have_colors;
+}
+
 void GlowScreen::saveLightingDataToDevice()
 {
     // Don't save if we're currently loading from device
     if (_loading_from_device) {
         return;
     }
-    
+
+    // Persist first, and unconditionally: local state is authoritative and must
+    // survive even when there's nothing to send to.
+    saveStateToNvs();
+
     // Check if we're connected to a device
     robo_cat_ears::BluetoothService *bt_service = robo_cat_ears::BluetoothService::getInstance();
     if (!bt_service || !bt_service->isConnected()) {
@@ -733,15 +915,17 @@ void GlowScreen::saveLightingDataToDevice()
     lighting_data.mode = robo_cat_ears::LightingService::stringToMode(_current_mode);
     lighting_data.speed = _current_speed;
     
-    // Convert colors from uint32_t to RGBColor
+    // Convert colors from uint32_t to RGBColor, dimming each by the brightness
+    // slider on the way out. The protocol has no brightness field, so this is
+    // the only place brightness exists on the wire.
     lighting_data.colors.clear();
     for (const auto &color : _colors) {
-        lighting_data.colors.push_back(robo_cat_ears::RGBColor(color));
+        lighting_data.colors.push_back(robo_cat_ears::RGBColor(applyBrightness(color, _brightness)));
     }
-    
+
     // Write to device
-    ESP_UTILS_LOGI("Saving lighting data to device: mode=%s, speed=%d, colors=%zu",
-                   _current_mode.c_str(), _current_speed, _colors.size());
+    ESP_UTILS_LOGI("Saving lighting data to device: mode=%s, speed=%d, colors=%zu, brightness=%d%%",
+                   _current_mode.c_str(), _current_speed, _colors.size(), _brightness);
     
     if (!lighting_service->writeLightingData(&lighting_data)) {
         ESP_UTILS_LOGE("Failed to write lighting data to device");
