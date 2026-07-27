@@ -802,66 +802,6 @@ void RoboCatEars::stopReconnectionTimer()
     }
 }
 
-void RoboCatEars::startReconnectionTimer()
-{
-    // Stop existing timer if any
-    stopReconnectionTimer();
-    
-    ESP_UTILS_LOGI("Starting auto-reconnection timer (will retry every 5 seconds)");
-    
-    // Create timer that attempts reconnection every 5 seconds
-    _reconnection_timer = lv_timer_create([](lv_timer_t *t) {
-        RoboCatEars *app = (RoboCatEars *)t->user_data;
-        if (!app || !app->_bluetooth_service) {
-            return;
-        }
-        
-        // Check if backlight is on by checking display inactive time
-        lv_disp_t *disp = lv_disp_get_default();
-        if (disp) {
-            uint32_t inactive_time = lv_disp_get_inactive_time(disp);
-            const uint32_t BACKLIGHT_TIMEOUT_MS = 15000;
-            
-            // Don't attempt reconnection if backlight is off (device is idle)
-            if (inactive_time >= BACKLIGHT_TIMEOUT_MS) {
-                ESP_UTILS_LOGD("Backlight is off (inactive %lu ms), skipping reconnection attempt", inactive_time);
-                return;
-            }
-        }
-        
-        // Don't attempt if already connected or already scanning
-        if (app->_bluetooth_service->isConnected()) {
-            ESP_UTILS_LOGI("Already connected, stopping reconnection timer");
-            app->stopReconnectionTimer();
-            return;
-        }
-        
-        if (app->_bluetooth_service->isScanning()) {
-            ESP_UTILS_LOGD("Still scanning, skipping reconnection attempt");
-            return;
-        }
-        
-        // Try to reconnect to the last disconnected device
-        if (!app->_last_disconnected_address.empty()) {
-            ESP_UTILS_LOGI("Auto-reconnection: attempting to reconnect to %s", 
-                          app->_last_disconnected_address.c_str());
-            app->_bluetooth_service->connectToDevice(app->_last_disconnected_address);
-        } else {
-            ESP_UTILS_LOGW("Auto-reconnection: no last disconnected address available");
-            app->stopReconnectionTimer();
-        }
-    }, 5000, this);  // Retry every 5 seconds
-}
-
-void RoboCatEars::stopReconnectionTimer()
-{
-    if (_reconnection_timer) {
-        ESP_UTILS_LOGI("Stopping auto-reconnection timer");
-        lv_timer_del(_reconnection_timer);
-        _reconnection_timer = nullptr;
-    }
-}
-
 ESP_UTILS_REGISTER_PLUGIN_WITH_CONSTRUCTOR(systems::base::App, RoboCatEars, APP_NAME, []()
 {
     return std::shared_ptr<RoboCatEars>(RoboCatEars::requestInstance(true, false), [](RoboCatEars * p) {});

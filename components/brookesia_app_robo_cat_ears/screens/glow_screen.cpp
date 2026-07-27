@@ -246,7 +246,6 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     }
 
     ESP_UTILS_LOGD("Glow screen created successfully");
-
     // Load lighting data if already connected when screen is created
     robo_cat_ears::BluetoothService *bt_service = robo_cat_ears::BluetoothService::getInstance();
     if (bt_service && bt_service->isConnected() && bt_service->isServiceDiscovered()) {
