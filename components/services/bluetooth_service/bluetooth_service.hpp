@@ -140,6 +140,18 @@ public:
     bool readDataPacket(DataType data_type, ReadDataCallback callback);
 
     /**
+     * @brief Switch the active connection between responsive and low-power intervals
+     *
+     * The watch is the central, so it pays for every connection event. While the
+     * display is asleep there is nothing to send, so the interval is stretched to
+     * save power and snapped back on wake.
+     *
+     * @param idle true for the slow idle interval, false for the responsive one
+     * @return true if the update was requested, otherwise false
+     */
+    bool setIdleConnParams(bool idle);
+
+    /**
      * @brief Get the ABF1 characteristic handle
      */
     uint16_t getCharHandleABF1() const { return _char_handle_abf1; }
@@ -277,6 +289,8 @@ private:
     std::string _connected_address;
     std::string _connected_device_name;
     esp_ble_addr_type_t _connected_address_type;
+    esp_bd_addr_t _remote_bda;
+    bool _idle_conn_params;
     uint16_t _conn_id;
     esp_gatt_if_t _gattc_if;
     uint16_t _char_handle_abf1;  // Data receive characteristic (write)

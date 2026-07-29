@@ -77,6 +77,8 @@ BluetoothService::BluetoothService()
     , _connected_address("")
     , _connected_device_name("")
     , _connected_address_type(BLE_ADDR_TYPE_PUBLIC)
+    , _remote_bda{}
+    , _idle_conn_params(false)
     , _conn_id(0)
     , _gattc_if(ESP_GATT_IF_NONE)
     , _char_handle_abf1(0)
@@ -209,6 +211,8 @@ bool BluetoothService::init()
             if (param->open.status == ESP_GATT_OK) {
                 service->_connected = true;
                 service->_conn_id = param->open.conn_id;
+                memcpy(service->_remote_bda, param->open.remote_bda, sizeof(esp_bd_addr_t));
+                service->_idle_conn_params = false;
                 ESP_LOGI(TAG, "Connected to device, conn_id: %d", service->_conn_id);
                 
                 // Notify connection status via callback
@@ -250,6 +254,7 @@ bool BluetoothService::init()
             
             service->_connected = false;
             service->_conn_id = 0;
+            service->_idle_conn_params = false;
             service->_connected_address = "";
             service->_connected_device_name = "";
             service->_connected_address_type = BLE_ADDR_TYPE_PUBLIC;
@@ -661,6 +666,41 @@ void BluetoothService::disconnect()
         ESP_LOGW(TAG, "disconnect() called but not connected (connected=%d, gattc_if=%d, conn_id=%d)", 
                        _connected, _gattc_if, _conn_id);
     }
+}
+
+bool BluetoothService::setIdleConnParams(bool idle)
+{
+    if (!_connected) {
+        return false;
+    }
+
+    if (idle == _idle_conn_params) {
+        return true;
+    }
+
+    esp_ble_conn_update_params_t params = {};
+    memcpy(params.bda, _remote_bda, sizeof(esp_bd_addr_t));
+    if (idle) {
+        params.min_int = 0x140;      // 400ms
+        params.max_int = 0x1E0;      // 600ms
+        params.latency = 0;
+        params.timeout = 600;        // 6000ms, must exceed 2 * max_int
+    } else {
+        params.min_int = 0x20;       // 40ms
+        params.max_int = 0x40;       // 80ms
+        params.latency = 0;
+        params.timeout = 500;        // 5000ms
+    }
+
+    esp_err_t ret = esp_ble_gap_update_conn_params(&params);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to update conn params: %s", esp_err_to_name(ret));
+        return false;
+    }
+
+    _idle_conn_params = idle;
+    ESP_LOGI(TAG, "Requested %s connection interval", idle ? "idle" : "responsive");
+    return true;
 }
 
 bool BluetoothService::writeDataPacket(const DataPacket &packet)
