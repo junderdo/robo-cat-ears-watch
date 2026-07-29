@@ -15,6 +15,8 @@
 #include "esp_lib_utils.h"
 #include "./dark/stylesheet.hpp"
 #include "esp_brookesia_app_system_info.hpp"
+#include "esp_brookesia_app_robo_cat_ears.hpp"
+#include "bluetooth_service.hpp"
 #include "esp_wifi.h"
 
 // C includes
@@ -34,7 +36,6 @@ using namespace esp_brookesia::systems::phone;
     }
 
 constexpr bool EXAMPLE_SHOW_MEM_INFO = false;
-constexpr uint32_t BACKLIGHT_TIMEOUT_MS = 15000; // 15 seconds
 // Set to true to enable serial logging, false to disable
 constexpr bool DEBUG_LOG_ENABLED = true;
 
@@ -163,9 +164,9 @@ extern "C" void app_main(void)
             }
         }, 2000, phone);
 
-        /* Create a task to handle backlight timeout */
+        /* Create a task to handle display sleep timeout */
         lv_timer_create([](lv_timer_t *t) {
-            static bool backlight_on = true;
+            static bool display_awake = true;
             lv_disp_t *disp = lv_disp_get_default();
             
             if (!disp) {
@@ -174,17 +175,27 @@ extern "C" void app_main(void)
 
             uint32_t inactive_time = lv_disp_get_inactive_time(disp);
 
-            /* Turn off backlight after timeout */
-            if (backlight_on && inactive_time >= BACKLIGHT_TIMEOUT_MS) {
-                ESP_UTILS_LOGI("Turning off backlight due to inactivity (%lu ms)", inactive_time);
-                bsp_display_backlight_off();
-                backlight_on = false;
+            robo_cat_ears::BluetoothService *bluetooth = robo_cat_ears::BluetoothService::getInstance();
+
+            /* Sleep the panel after timeout */
+            if (display_awake && inactive_time >= apps::DISPLAY_TIMEOUT_MS) {
+                ESP_UTILS_LOGI("Sleeping display due to inactivity (%lu ms)", inactive_time);
+                bsp_display_sleep(true);
+                if (bluetooth) {
+                    bluetooth->setIdleConnParams(true);
+                }
+                display_awake = false;
             }
-            /* Turn on backlight when touch detected */
-            else if (!backlight_on && inactive_time < BACKLIGHT_TIMEOUT_MS) {
-                ESP_UTILS_LOGI("Turning on backlight due to touch activity");
-                bsp_display_backlight_on();
-                backlight_on = true;
+            /* Wake the panel when touch detected */
+            else if (!display_awake && inactive_time < apps::DISPLAY_TIMEOUT_MS) {
+                ESP_UTILS_LOGI("Waking display due to touch activity");
+                bsp_display_sleep(false);
+                /* Panel RAM is not guaranteed across sleep, so repaint everything */
+                lv_obj_invalidate(lv_scr_act());
+                if (bluetooth) {
+                    bluetooth->setIdleConnParams(false);
+                }
+                display_awake = true;
             }
         }, 500, nullptr);  // Check every 500ms
     }

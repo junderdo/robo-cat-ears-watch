@@ -751,15 +751,14 @@ void RoboCatEars::startReconnectionTimer()
             return;
         }
         
-        // Check if backlight is on by checking display inactive time
+        // Check if the display is awake by checking display inactive time
         lv_disp_t *disp = lv_disp_get_default();
         if (disp) {
             uint32_t inactive_time = lv_disp_get_inactive_time(disp);
-            const uint32_t BACKLIGHT_TIMEOUT_MS = 15000;
-            
-            // Don't attempt reconnection if backlight is off (device is idle)
-            if (inactive_time >= BACKLIGHT_TIMEOUT_MS) {
-                ESP_UTILS_LOGD("Backlight is off (inactive %lu ms), skipping reconnection attempt", inactive_time);
+
+            // Don't attempt reconnection if the display is asleep (device is idle)
+            if (inactive_time >= DISPLAY_TIMEOUT_MS) {
+                ESP_UTILS_LOGD("Display is asleep (inactive %lu ms), skipping reconnection attempt", inactive_time);
                 return;
             }
         }

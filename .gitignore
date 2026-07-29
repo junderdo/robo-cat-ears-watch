@@ -6,3 +6,7 @@ managed_components/
 
 # VSCode settings
 .vscode/
+
+# Claude
+.cache/
+.claude/

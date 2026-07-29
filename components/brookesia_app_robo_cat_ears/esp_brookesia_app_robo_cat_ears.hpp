@@ -21,6 +21,10 @@ namespace esp_brookesia::apps {
 // Use the BleDevice from the service namespace
 using robo_cat_ears::BleDevice;
 
+// Inactivity before the display is put to sleep. Shared with the reconnection
+// timer, which skips reconnect attempts while the display is asleep.
+constexpr uint32_t DISPLAY_TIMEOUT_MS = 15000; // 15 seconds
+
 /**
  * @brief Robo Cat Ears app with Bluetooth LE scanning functionality
  *
