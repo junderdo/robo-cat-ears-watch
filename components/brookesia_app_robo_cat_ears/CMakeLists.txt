@@ -6,7 +6,7 @@ file(GLOB_RECURSE PROJ_SRCS_CPP ${PROJ_SRC}/*.cpp)
 idf_component_register(
     SRCS  ${PROJ_SRCS_C} ${PROJ_SRCS_CPP}
     INCLUDE_DIRS ${PROJ_SRC}  
-    REQUIRES freertos lvgl nvs_flash bt brookesia_core bluetooth_service lighting_service calibration_service animation_mode_service
+    REQUIRES freertos lvgl nvs_flash bt brookesia_core bluetooth_service lighting_service calibration_service animation_mode_service custom_animation_service
     WHOLE_ARCHIVE
 )
 

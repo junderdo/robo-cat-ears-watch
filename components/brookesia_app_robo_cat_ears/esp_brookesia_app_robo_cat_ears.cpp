@@ -15,6 +15,7 @@
 #define ESP_UTILS_LOG_TAG "BS:RoboCatEars"
 #include "esp_lib_utils.h"
 #include "esp_brookesia_app_robo_cat_ears.hpp"
+#include "custom_animation_service.hpp"
 
 #include <cstring>
 #include <algorithm>
@@ -150,6 +151,81 @@ bool RoboCatEars::deinit()
     return true;
 }
 
+namespace {
+
+/**
+ * @brief Build the demo custom animation seeded into slot 0
+ *
+ * Temporary: stands in for animations authored on the watch until the keyframe
+ * editor exists. Remove it, and the "Timid" button hook in run(), once
+ * animations can be created from the UI.
+ *
+ * A timid retreat: the ears fold back and outward, twitch, then spring back to
+ * centre. Between keyframes the ears reach the halfway pose under the previous
+ * keyframe's departure easing, hold there for any time the two easings leave
+ * uncovered, then complete the move under the next keyframe's arrival easing.
+ */
+robo_cat_ears::CustomAnimationData makeTimidAnimation()
+{
+    using robo_cat_ears::AnimationKeyframe;
+    using robo_cat_ears::EaseType;
+
+    robo_cat_ears::CustomAnimationData animation;
+    animation.name = "Timid";
+
+    // Centred, then ease gently out of the pose
+    AnimationKeyframe start;
+    start.time_ms = 0;
+    start.angles[robo_cat_ears::SERVO_LEFT_AZIMUTH] = 90;
+    start.angles[robo_cat_ears::SERVO_LEFT_LATITUDE] = 90;
+    start.angles[robo_cat_ears::SERVO_RIGHT_AZIMUTH] = 90;
+    start.angles[robo_cat_ears::SERVO_RIGHT_LATITUDE] = 90;
+    start.ease_out_type = EaseType::SINE;
+    start.ease_out_ms = 200;
+    animation.keyframes.push_back(start);
+
+    // Folded back and outward; 200 ms out + 700 ms in exactly fills the segment
+    AnimationKeyframe folded;
+    folded.time_ms = 900;
+    folded.angles[robo_cat_ears::SERVO_LEFT_AZIMUTH] = 40;
+    folded.angles[robo_cat_ears::SERVO_LEFT_LATITUDE] = 140;
+    folded.angles[robo_cat_ears::SERVO_RIGHT_AZIMUTH] = 140;
+    folded.angles[robo_cat_ears::SERVO_RIGHT_LATITUDE] = 40;
+    folded.ease_in_type = EaseType::SINE;
+    folded.ease_in_ms = 700;
+    folded.ease_out_type = EaseType::SINE;
+    folded.ease_out_ms = 200;
+    animation.keyframes.push_back(folded);
+
+    // A nervous twitch, held at the halfway pose for 800 ms of the 1300 ms
+    AnimationKeyframe twitch;
+    twitch.time_ms = 2200;
+    twitch.angles[robo_cat_ears::SERVO_LEFT_AZIMUTH] = 50;
+    twitch.angles[robo_cat_ears::SERVO_LEFT_LATITUDE] = 135;
+    twitch.angles[robo_cat_ears::SERVO_RIGHT_AZIMUTH] = 130;
+    twitch.angles[robo_cat_ears::SERVO_RIGHT_LATITUDE] = 45;
+    twitch.ease_in_type = EaseType::CUBIC;
+    twitch.ease_in_ms = 300;
+    twitch.ease_out_type = EaseType::SINE;
+    twitch.ease_out_ms = 300;
+    animation.keyframes.push_back(twitch);
+
+    // Spring back to centre with an overshoot
+    AnimationKeyframe recover;
+    recover.time_ms = 3400;
+    recover.angles[robo_cat_ears::SERVO_LEFT_AZIMUTH] = 90;
+    recover.angles[robo_cat_ears::SERVO_LEFT_LATITUDE] = 90;
+    recover.angles[robo_cat_ears::SERVO_RIGHT_AZIMUTH] = 90;
+    recover.angles[robo_cat_ears::SERVO_RIGHT_LATITUDE] = 90;
+    recover.ease_in_type = EaseType::ELASTIC;
+    recover.ease_in_ms = 800;
+    animation.keyframes.push_back(recover);
+
+    return animation;
+}
+
+} // namespace
+
 bool RoboCatEars::run(void)
 {
     ESP_UTILS_LOGD("Run");
@@ -186,17 +262,40 @@ bool RoboCatEars::run(void)
         }
     );
 
+    // Temporary: seed the demo custom animation so the feature can be exercised
+    // before the keyframe editor exists. Existing slots are left alone.
+    auto *custom_animation_service = robo_cat_ears::CustomAnimationService::getInstance();
+    if (custom_animation_service->init()) {
+        robo_cat_ears::CustomAnimationData stored;
+        if (!custom_animation_service->loadAnimation(0, stored)) {
+            custom_animation_service->saveAnimation(0, makeTimidAnimation());
+        }
+    }
+
     _animate_screen = new screens::AnimateScreen(
         screen,
         // on_command_clicked
         [this](const std::string& command) {
             ESP_UTILS_LOGI("Command button clicked: %s", command.c_str());
-            if (_bluetooth_service) {
-                robo_cat_ears::DataPacket packet;
-                packet.type = robo_cat_ears::DataType::ANIMATION;
-                packet.data = command;
-                _bluetooth_service->writeDataPacket(packet);
+            if (!_bluetooth_service) {
+                return;
             }
+
+            // Temporary: "Timid" plays the stored custom animation. The
+            // peripheral only knows built-ins 1-8, so this button was inert.
+            if (command == "9") {
+                auto *service = robo_cat_ears::CustomAnimationService::getInstance();
+                robo_cat_ears::CustomAnimationData animation;
+                if (service->loadAnimation(0, animation)) {
+                    service->playAnimation(animation);
+                }
+                return;
+            }
+
+            robo_cat_ears::DataPacket packet;
+            packet.type = robo_cat_ears::DataType::ANIMATION;
+            packet.data = command;
+            _bluetooth_service->writeDataPacket(packet);
         }
     );
 
