@@ -22,13 +22,19 @@ struct BleDevice {
 };
 
 /**
+ * @brief MTU offered to the peripheral during negotiation
+ */
+constexpr uint16_t BLE_LOCAL_MTU = 512;
+
+/**
  * @brief Data type enumeration for packed data transmission
  */
 enum class DataType : uint8_t {
     ANIMATION = 0x01,
     LIGHTING = 0x02,
     CALIBRATION = 0x03,
-    ANIMATION_MODE = 0x04
+    ANIMATION_MODE = 0x04,
+    CUSTOM_ANIMATION = 0x05
 };
 
 /**
@@ -161,6 +167,13 @@ public:
      * @brief Check if services are discovered
      */
     bool isServiceDiscovered() const { return _service_discovered; }
+
+    /**
+     * @brief Get the largest value a single characteristic write can carry
+     *
+     * Three bytes of the negotiated MTU are spent on the ATT write header.
+     */
+    uint16_t getMaxWriteLength() const { return _mtu - 3; }
 
     /**
      * @brief Save the last connected device to NVS
@@ -299,6 +312,7 @@ private:
     uint8_t _char_properties_abf2;  // Properties of ABF2 characteristic
     bool _service_discovered;
     bool _mtu_configured;
+    uint16_t _mtu;  // Negotiated MTU, 23 until ESP_GATTC_CFG_MTU_EVT arrives
     bool _connecting;
 
     // Auto-reconnect support

@@ -9,6 +9,7 @@
 #include "esp_bt_main.h"
 #include "esp_gap_ble_api.h"
 #include "esp_gattc_api.h"
+#include "esp_gatt_common_api.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
@@ -87,6 +88,7 @@ BluetoothService::BluetoothService()
     , _char_properties_abf2(0)
     , _service_discovered(false)
     , _mtu_configured(false)
+    , _mtu(ESP_GATT_DEF_BLE_MTU_SIZE)
     , _connecting(false)
     , _last_connected_address("")
     , _last_connected_address_type(BLE_ADDR_TYPE_PUBLIC)
@@ -264,6 +266,7 @@ bool BluetoothService::init()
             service->_char_properties_abf2 = 0;
             service->_service_discovered = false;
             service->_mtu_configured = false;
+            service->_mtu = ESP_GATT_DEF_BLE_MTU_SIZE;
             service->_connecting = false;
             
             // Notify connection status via callback
@@ -354,6 +357,7 @@ bool BluetoothService::init()
             break;
         case ESP_GATTC_CFG_MTU_EVT:
             // NO LOGGING - causes heap corruption in BLE context
+            service->_mtu = param->cfg_mtu.mtu;
             service->_mtu_configured = true;
             
             // Only notify service ready when BOTH service discovery AND MTU are complete
@@ -405,6 +409,13 @@ bool BluetoothService::init()
     ret = esp_ble_gattc_app_register(0);
     if (ret) {
         ESP_LOGE(TAG, "GATT client app register failed: %s", esp_err_to_name(ret));
+    }
+
+    // The local MTU is what esp_ble_gattc_send_mtu_req offers the peripheral.
+    // Left at the 23-byte default, every write is capped at 20 bytes of payload.
+    ret = esp_ble_gatt_set_local_mtu(BLE_LOCAL_MTU);
+    if (ret) {
+        ESP_LOGW(TAG, "Set local MTU failed: %s", esp_err_to_name(ret));
     }
 
     _ble_initialized = true;
@@ -729,6 +740,9 @@ bool BluetoothService::writeDataPacket(const DataPacket &packet)
             break;
         case DataType::CALIBRATION:
             type_name = "CALIBRATION";
+            break;
+        case DataType::CUSTOM_ANIMATION:
+            type_name = "CUSTOM_ANIMATION";
             break;
         default:
             break;
