@@ -105,11 +105,12 @@ ModesScreen::ModesScreen(lv_obj_t *parent)
     // Set "Solid" as default active mode
     updateModeButtonStates(_mode_buttons[0]);
 
-    // Speed slider at bottom of panel
+    // Speed slider at bottom of panel, with a label above it
     lv_obj_t *speed_label = lv_label_create(_panel);
-    lv_label_set_text(speed_label, "Speed");
+    lv_label_set_text(speed_label, "Animation Speed");
     lv_obj_set_style_text_font(speed_label, &lv_font_montserrat_20, 0);
-    lv_obj_align(speed_label, LV_ALIGN_BOTTOM_LEFT, 20, -90);
+    lv_obj_set_style_text_color(speed_label, lv_color_hex(0xC0C0C0), 0);
+    lv_obj_align(speed_label, LV_ALIGN_BOTTOM_LEFT, 20, -122);
 
     _speed_slider = lv_slider_create(_panel);
     lv_obj_set_size(_speed_slider, lv_pct(75), 24);
