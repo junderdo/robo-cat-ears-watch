@@ -666,7 +666,29 @@ void RoboCatEars::updateDeviceList()
         const auto &discovered_devices = app->_bluetooth_service->getDiscoveredDevices();
         bool scanning = app->_bluetooth_service->isScanning();
 
-        if (discovered_devices.empty()) {
+        // If connected to a device that isn't in the discovered list (e.g. after
+        // auto-reconnect, which connects directly without scanning), show it at
+        // the top of the list. No RSSI is available since it wasn't scanned.
+        const char *connected_addr = app->_scan_screen->getConnectedDevice();
+        bool has_connected = connected_addr && strlen(connected_addr) > 0;
+        bool connected_in_discovered = has_connected &&
+            std::any_of(discovered_devices.begin(), discovered_devices.end(),
+                        [connected_addr](const robo_cat_ears::BleDevice &dev) { return dev.address == connected_addr; });
+
+        if (has_connected && !connected_in_discovered) {
+            std::string device_name = app->_bluetooth_service->getConnectedDeviceName();
+            char label[128];
+            snprintf(label, sizeof(label), "%s\n%s\nCONNECTED",
+                    device_name.c_str(), connected_addr);
+            lv_obj_t *btn = lv_list_add_btn(device_list, LV_SYMBOL_OK, label);
+            lv_obj_set_height(btn, 100);
+            lv_obj_set_style_text_font(btn, &lv_font_montserrat_18, 0);
+            lv_obj_set_style_text_color(btn, lv_color_hex(0x00FF00), 0);
+            lv_obj_set_style_bg_color(btn, lv_color_hex(0x005500), 0);  // Dark green background
+            lv_obj_add_flag(btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
+        }
+
+        if (discovered_devices.empty() && !has_connected) {
             if (scanning) {
                 lv_obj_t *btn = lv_list_add_btn(device_list, LV_SYMBOL_REFRESH, "Scanning for ears...");
                 lv_obj_set_style_text_color(btn, lv_color_hex(0x808080), 0);
