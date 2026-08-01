@@ -55,6 +55,12 @@ constexpr bool DEBUG_LOG_ENABLED = true;
 static SystemStatus *g_system_status = nullptr;
 Phone *g_phone = nullptr;  // Global phone instance for Bluetooth status updates
 
+// Transparent full-screen overlay created while the display sleeps. The tap
+// that wakes the display lands on it instead of the UI underneath, so waking
+// the device never triggers an accidental button press or slider change. It
+// deletes itself once that first tap is released.
+static lv_obj_t *g_wake_shield = nullptr;
+
 extern "C" void app_main(void)
 {
     ESP_UTILS_LOGI("Display ESP-Brookesia");
@@ -183,6 +189,18 @@ extern "C" void app_main(void)
                 bsp_display_sleep(true);
                 if (bluetooth) {
                     bluetooth->setIdleConnParams(true);
+                }
+                if (!g_wake_shield) {
+                    g_wake_shield = lv_obj_create(lv_layer_top());
+                    lv_obj_remove_style_all(g_wake_shield);
+                    lv_obj_set_size(g_wake_shield, lv_pct(100), lv_pct(100));
+                    lv_obj_clear_flag(g_wake_shield, LV_OBJ_FLAG_SCROLLABLE);
+                    lv_obj_add_flag(g_wake_shield, LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_add_event_cb(g_wake_shield, [](lv_event_t *e) {
+                        ESP_UTILS_LOGI("Wake tap released, removing wake shield");
+                        lv_obj_del_async(g_wake_shield);
+                        g_wake_shield = nullptr;
+                    }, LV_EVENT_RELEASED, nullptr);
                 }
                 display_awake = false;
             }
