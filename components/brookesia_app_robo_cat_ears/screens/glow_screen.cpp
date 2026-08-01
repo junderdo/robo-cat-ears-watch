@@ -132,7 +132,11 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
             GlowScreen *screen = (GlowScreen *)lv_timer_get_user_data(timer);
             if (screen) {
                 screen->_brightness_debounce_timer = nullptr;
-                screen->setBrightness(lv_slider_get_value(screen->_brightness_slider));
+                // _brightness was already updated live by the slider callback, so
+                // setBrightness() would see no change and skip the send - write
+                // to the device directly instead.
+                ESP_UTILS_LOGI("Brightness set to %d%%", screen->_brightness);
+                screen->saveLightingDataToDevice();
             }
         }, 300, screen);
         lv_timer_set_repeat_count(screen->_brightness_debounce_timer, 1);
@@ -802,21 +806,6 @@ void GlowScreen::updateBrightnessLabel()
     char text[32];
     snprintf(text, sizeof(text), "Brightness  %d%%", _brightness);
     lv_label_set_text(_brightness_label, text);
-}
-
-void GlowScreen::setBrightness(int brightness)
-{
-    if (brightness < 0) brightness = 0;
-    if (brightness > 100) brightness = 100;
-
-    const bool changed = (_brightness != brightness);
-    _brightness = brightness;
-    updateBrightnessLabel();
-
-    if (changed) {
-        ESP_UTILS_LOGI("Brightness set to %d%%", _brightness);
-        saveLightingDataToDevice();
-    }
 }
 
 void GlowScreen::saveStateToNvs()

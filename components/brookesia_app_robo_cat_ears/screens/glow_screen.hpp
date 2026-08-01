@@ -90,16 +90,6 @@ public:
     void clearColors();
 
     /**
-     * @brief Set the overall LED brightness
-     *
-     * Colors shown in the UI are always the user's chosen values; brightness is
-     * applied only to the copies sent over BLE.
-     *
-     * @param brightness Brightness value (0-100)
-     */
-    void setBrightness(int brightness);
-
-    /**
      * @brief Get the current brightness
      *
      * @return Brightness value (0-100)
