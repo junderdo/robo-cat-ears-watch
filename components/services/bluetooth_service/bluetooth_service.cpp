@@ -272,7 +272,7 @@ bool BluetoothService::init()
             service->_connecting = false;
             service->_indication_callback = nullptr;
             service->_subscribed_callback = nullptr;
-
+            
             // Notify connection status via callback
             if (service->_connection_status_callback) {
                 service->_connection_status_callback(false, "", "");
@@ -404,11 +404,7 @@ bool BluetoothService::init()
             // Registering only arms the local stack; the ears deliver nothing
             // until their CCCD is written.
             if (param->reg_for_notify.status != ESP_GATT_OK) {
-                if (service->_subscribed_callback) {
-                    SubscribedCallback callback = service->_subscribed_callback;
-                    service->_subscribed_callback = nullptr;
-                    callback(false);
-                }
+                service->finishSubscribe(false);
                 break;
             }
 
@@ -429,20 +425,12 @@ bool BluetoothService::init()
                 esp_ble_gattc_write_char_descr(gattc_if, service->_conn_id, descr.handle,
                                                sizeof(cccd_value), (uint8_t *)&cccd_value,
                                                ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE) != ESP_OK) {
-                if (service->_subscribed_callback) {
-                    SubscribedCallback callback = service->_subscribed_callback;
-                    service->_subscribed_callback = nullptr;
-                    callback(false);
-                }
+                service->finishSubscribe(false);
             }
             break;
         }
         case ESP_GATTC_WRITE_DESCR_EVT:
-            if (service->_subscribed_callback) {
-                SubscribedCallback callback = service->_subscribed_callback;
-                service->_subscribed_callback = nullptr;
-                callback(param->write.status == ESP_GATT_OK);
-            }
+            service->finishSubscribe(param->write.status == ESP_GATT_OK);
             break;
         case ESP_GATTC_NOTIFY_EVT:
             if (param->notify.handle == service->_char_handle_abf2 && service->_indication_callback) {
@@ -886,6 +874,17 @@ bool BluetoothService::readDataPacket(DataType data_type, ReadDataCallback callb
     
     ESP_LOGI(TAG, "Read characteristic request sent successfully");
     return true;
+}
+
+void BluetoothService::finishSubscribe(bool success)
+{
+    if (!_subscribed_callback) {
+        return;
+    }
+
+    SubscribedCallback callback = _subscribed_callback;
+    _subscribed_callback = nullptr;
+    callback(success);
 }
 
 bool BluetoothService::subscribeToIndications(IndicationCallback on_indication, SubscribedCallback on_subscribed)

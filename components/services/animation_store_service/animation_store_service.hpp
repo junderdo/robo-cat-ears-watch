@@ -55,6 +55,7 @@ enum class AnimationStoreState {
 class AnimationStoreService {
 public:
     using ChangedCallback = std::function<void()>;
+    using SessionCompleteCallback = std::function<void()>;
 
     static AnimationStoreService *getInstance();
 
@@ -107,6 +108,14 @@ public:
      */
     void setChangedCallback(ChangedCallback callback) { _changed_callback = callback; }
 
+    /**
+     * @brief Set the callback fired once the connect sequence finishes, however it ends
+     *
+     * The sequence owns the link until then, so anything else that wants to
+     * talk to the ears waits for this rather than issuing a racing GATT read.
+     */
+    void setSessionCompleteCallback(SessionCompleteCallback callback) { _session_complete_callback = callback; }
+
 private:
     AnimationStoreService();
 
@@ -128,12 +137,11 @@ private:
     AnimationStoreState _state;
     std::string _cached_address;
     std::vector<StoredAnimation> _entries;
-    uint8_t _slot_count;
-    uint16_t _max_chunk_bytes;
     bool _watch_stale;
     bool _last_play_was_stale;
     bool _subscribe_succeeded;
 
+    uint8_t _fetch_attempts;
     uint8_t _pending_sub_opcode;  // 0 when nothing is in flight
     uint8_t _pending_corr;
     uint8_t _next_corr;
@@ -148,6 +156,7 @@ private:
 
     void *_timeout_timer;
     ChangedCallback _changed_callback;
+    SessionCompleteCallback _session_complete_callback;
 };
 
 } // namespace robo_cat_ears

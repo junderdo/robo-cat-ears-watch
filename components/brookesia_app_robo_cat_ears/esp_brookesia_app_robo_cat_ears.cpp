@@ -307,9 +307,6 @@ bool RoboCatEars::run(void)
                 auto* app = static_cast<RoboCatEars*>(user_data);
                 auto* store = robo_cat_ears::AnimationStoreService::getInstance();
                 store->endSession();
-                if (app->_animate_screen) {
-                    app->_animate_screen->refreshAnimations();
-                }
 
                 // We hung up on a protocol version we cannot speak; reconnecting
                 // would only reach the same refusal in a loop
@@ -336,31 +333,36 @@ bool RoboCatEars::run(void)
 
         // Service ready callback - fires when BLE service is discovered after (re)connect
         _bluetooth_service->setServiceReadyCallback([this]() {
-            ESP_UTILS_LOGI("Bluetooth service ready, loading screen data");
+            ESP_UTILS_LOGI("Bluetooth service ready, running the store connect sequence");
             lv_async_call([](void* user_data) {
                 auto* app = static_cast<RoboCatEars*>(user_data);
                 // Fetch the ears' store once per connection, not per screen entry.
                 // A reconnect re-runs CAPABILITY too, since the MTU may differ.
+                // Nothing else may talk to the ears until this settles.
                 if (app->_bluetooth_service) {
                     robo_cat_ears::AnimationStoreService::getInstance()->beginSession(
                         app->_bluetooth_service->getConnectedAddress());
                 }
-                // Load lighting data first. Animation mode data is loaded after a delay
-                // because BluetoothService only supports one pending read at a time —
-                // issuing both simultaneously overwrites the first callback.
-                if (app->_glow_screen) {
-                    app->_glow_screen->loadLightingData();
-                }
-                // Load animation mode data after 600ms to let the lighting read complete
-                lv_timer_t *timer = lv_timer_create([](lv_timer_t *t) {
-                    auto *app = static_cast<RoboCatEars*>(t->user_data);
-                    if (app->_animate_screen) {
-                        app->_animate_screen->loadAnimationModeData();
-                    }
-                    lv_timer_del(t);
-                }, 600, app);
-                lv_timer_set_repeat_count(timer, 1);
             }, this);
+        });
+
+        // The store's connect sequence is done with the link, so the remaining
+        // screens may read now. Lighting first, then animation mode after a delay,
+        // because BluetoothService only supports one pending read at a time —
+        // issuing both simultaneously overwrites the first callback.
+        robo_cat_ears::AnimationStoreService::getInstance()->setSessionCompleteCallback([this]() {
+            ESP_UTILS_LOGI("Store connect sequence settled, loading remaining screen data");
+            if (_glow_screen) {
+                _glow_screen->loadLightingData();
+            }
+            lv_timer_t *timer = lv_timer_create([](lv_timer_t *t) {
+                auto *app = static_cast<RoboCatEars*>(lv_timer_get_user_data(t));
+                if (app->_animate_screen) {
+                    app->_animate_screen->loadAnimationModeData();
+                }
+                lv_timer_del(t);
+            }, 600, this);
+            lv_timer_set_repeat_count(timer, 1);
         });
     }
 

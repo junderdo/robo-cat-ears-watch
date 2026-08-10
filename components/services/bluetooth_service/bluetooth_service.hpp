@@ -307,6 +307,11 @@ private:
     void handleGapEvent(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
 
     /**
+     * @brief Hand the pending subscription result to its callback, once
+     */
+    void finishSubscribe(bool success);
+
+    /**
      * @brief Add a discovered device to the list
      */
     void addDevice(const std::string &name, const std::string &address, esp_ble_addr_type_t address_type, int rssi);

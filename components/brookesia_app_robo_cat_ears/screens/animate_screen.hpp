@@ -59,12 +59,11 @@ public:
     void refreshAnimations();
 
 private:
-    void createAnimationButton(int position, const char *name, const lv_font_t *font, int encoded_action);
+    lv_obj_t *createAnimationButton(int position, const char *name, const lv_font_t *font,
+                                    lv_event_cb_t on_click, void *action);
 
-    /**
-     * @brief The sentence describing the store's state, or nullptr when the grid speaks for itself
-     */
-    const char *storeMessage() const;
+    static void onBuiltInClicked(lv_event_t *e);
+    static void onStoredSlotClicked(lv_event_t *e);
 
     lv_obj_t *_container;
     lv_obj_t *_status_label;

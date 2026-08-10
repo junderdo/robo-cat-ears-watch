@@ -22,13 +22,65 @@ namespace {
 const char *BUILT_IN_LABELS[] = {"Right", "Left", "Happy :)", "Sad :(", "Wiggle", "Radar", "Curious", "Alert"};
 constexpr int BUILT_IN_COUNT = 8;
 
-// A button's action packed into its event user data, so rebuilding the grid
-// frees nothing: 0..7 is a built-in, CUSTOM_ACTION_FLAG | slot is a stored slot.
-constexpr int CUSTOM_ACTION_FLAG = 0x100;
-
 constexpr lv_opa_t DIMMED_OPA = LV_OPA_40;
 
+bool wasSwipe()
+{
+    return lv_indev_get_gesture_dir(lv_indev_get_act()) != LV_DIR_NONE;
+}
+
+const char *storeMessage()
+{
+    auto *store = robo_cat_ears::AnimationStoreService::getInstance();
+    auto *bt = robo_cat_ears::BluetoothService::getInstance();
+
+    switch (store->getState()) {
+    case robo_cat_ears::AnimationStoreState::NO_CONNECTION:
+        return (bt && bt->isConnecting()) ? "Connecting to the ears..." : "Not connected to the ears";
+    case robo_cat_ears::AnimationStoreState::FETCHING:
+        return "Loading the ears' animations...";
+    case robo_cat_ears::AnimationStoreState::READY:
+        if (store->getEntries().empty()) {
+            return "No animations stored on the ears";
+        }
+        return store->wasLastPlayStale() ? "That animation is no longer on the ears" : nullptr;
+    case robo_cat_ears::AnimationStoreState::FETCH_FAILED:
+        return "Couldn't read the ears' animations";
+    case robo_cat_ears::AnimationStoreState::VERSION_MISMATCH:
+        return store->isWatchStale() ? "Watch firmware is out of date" : "Ears firmware is out of date";
+    case robo_cat_ears::AnimationStoreState::LINK_LOST:
+        return "Disconnected - reconnecting...";
+    }
+    return nullptr;
+}
+
 } // namespace
+
+void AnimateScreen::onBuiltInClicked(lv_event_t *e)
+{
+    if (wasSwipe()) {
+        return;
+    }
+
+    lv_obj_t *btn = (lv_obj_t *)lv_event_get_current_target(e);
+    AnimateScreen *screen = (AnimateScreen *)lv_obj_get_user_data(btn);
+    if (!screen || !screen->_on_command_clicked) {
+        return;
+    }
+
+    int index = (int)(intptr_t)lv_event_get_user_data(e);
+    screen->_on_command_clicked(std::to_string(index + 1));
+}
+
+void AnimateScreen::onStoredSlotClicked(lv_event_t *e)
+{
+    if (wasSwipe()) {
+        return;
+    }
+
+    uint8_t slot = (uint8_t)(intptr_t)lv_event_get_user_data(e);
+    robo_cat_ears::AnimationStoreService::getInstance()->play(slot);
+}
 
 AnimateScreen::AnimateScreen(lv_obj_t *parent_screen,
                              std::function<void(const std::string&)> on_command_clicked)
@@ -133,7 +185,8 @@ AnimateScreen::AnimateScreen(lv_obj_t *parent_screen,
     ESP_UTILS_LOGD("Animate screen created successfully");
 }
 
-void AnimateScreen::createAnimationButton(int position, const char *name, const lv_font_t *font, int encoded_action)
+lv_obj_t *AnimateScreen::createAnimationButton(int position, const char *name, const lv_font_t *font,
+                                               lv_event_cb_t on_click, void *action)
 {
     int row = position / 2;
     int col = position % 2;
@@ -152,53 +205,10 @@ void AnimateScreen::createAnimationButton(int position, const char *name, const 
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(label);
 
-    lv_obj_add_event_cb(btn, [](lv_event_t *e) {
-        // Ignore click if a gesture (swipe) was detected
-        lv_dir_t gesture_dir = lv_indev_get_gesture_dir(lv_indev_get_act());
-        if (gesture_dir != LV_DIR_NONE) {
-            return; // Swipe detected, don't process as click
-        }
-
-        lv_obj_t *btn = (lv_obj_t*)lv_event_get_current_target(e);
-        AnimateScreen *screen = (AnimateScreen *)lv_obj_get_user_data(btn);
-        if (!screen) {
-            return;
-        }
-
-        int action = (int)(intptr_t)lv_event_get_user_data(e);
-        if (action & CUSTOM_ACTION_FLAG) {
-            robo_cat_ears::AnimationStoreService::getInstance()->play(action & 0xFF);
-        } else if (screen->_on_command_clicked) {
-            screen->_on_command_clicked(std::to_string(action + 1));
-        }
-    }, LV_EVENT_CLICKED, (void *)(intptr_t)encoded_action);
-
+    lv_obj_add_event_cb(btn, on_click, LV_EVENT_CLICKED, action);
     lv_obj_set_user_data(btn, this);
-}
 
-const char *AnimateScreen::storeMessage() const
-{
-    auto *store = robo_cat_ears::AnimationStoreService::getInstance();
-    auto *bt = robo_cat_ears::BluetoothService::getInstance();
-
-    switch (store->getState()) {
-    case robo_cat_ears::AnimationStoreState::NO_CONNECTION:
-        return (bt && bt->isConnecting()) ? "Connecting to the ears..." : "Not connected to the ears";
-    case robo_cat_ears::AnimationStoreState::FETCHING:
-        return "Loading the ears' animations...";
-    case robo_cat_ears::AnimationStoreState::READY:
-        if (store->wasLastPlayStale()) {
-            return "That animation is no longer on the ears";
-        }
-        return store->getEntries().empty() ? "No animations stored on the ears" : nullptr;
-    case robo_cat_ears::AnimationStoreState::FETCH_FAILED:
-        return "Couldn't read the ears' animations";
-    case robo_cat_ears::AnimationStoreState::VERSION_MISMATCH:
-        return store->isWatchStale() ? "Watch firmware is out of date" : "Ears firmware is out of date";
-    case robo_cat_ears::AnimationStoreState::LINK_LOST:
-        return "Disconnected - reconnecting...";
-    }
-    return nullptr;
+    return btn;
 }
 
 void AnimateScreen::refreshAnimations()
@@ -212,22 +222,26 @@ void AnimateScreen::refreshAnimations()
     auto *store = robo_cat_ears::AnimationStoreService::getInstance();
     auto *bt = robo_cat_ears::BluetoothService::getInstance();
 
+    // Built-ins need only a link. A stored slot needs a list we know is current
+    // for the device we are talking to, which is exactly the READY state.
+    bool link_up = bt && bt->isConnected();
+    bool slots_current = store->getState() == robo_cat_ears::AnimationStoreState::READY;
+
     int position = 0;
     for (int i = 0; i < BUILT_IN_COUNT; i++) {
-        createAnimationButton(position++, BUILT_IN_LABELS[i], &lv_font_montserrat_28, i);
+        lv_obj_t *btn = createAnimationButton(position++, BUILT_IN_LABELS[i], &lv_font_montserrat_28,
+                                              onBuiltInClicked, (void *)(intptr_t)i);
+        if (!link_up) {
+            lv_obj_set_style_opa(btn, DIMMED_OPA, 0);
+        }
     }
 
     const auto &entries = store->getEntries();
     for (const auto &entry : entries) {
-        createAnimationButton(position++, entry.name.c_str(), &lv_font_montserrat_18,
-                              CUSTOM_ACTION_FLAG | entry.slot);
-    }
-
-    // Nothing is playable without a link, so dim rather than clear
-    if (!bt || !bt->isConnected()) {
-        uint32_t child_count = lv_obj_get_child_cnt(_scroll_container);
-        for (uint32_t i = 0; i < child_count; i++) {
-            lv_obj_set_style_opa(lv_obj_get_child(_scroll_container, i), DIMMED_OPA, 0);
+        lv_obj_t *btn = createAnimationButton(position++, entry.name.c_str(), &lv_font_montserrat_18,
+                                              onStoredSlotClicked, (void *)(intptr_t)entry.slot);
+        if (!slots_current) {
+            lv_obj_set_style_opa(btn, DIMMED_OPA, 0);
         }
     }
 
@@ -260,6 +274,14 @@ void AnimateScreen::loadAnimationModeData()
     robo_cat_ears::BluetoothService *bt_service = robo_cat_ears::BluetoothService::getInstance();
     if (!bt_service || !bt_service->isConnected() || bt_service->getCharHandleABF2() == 0) {
         ESP_UTILS_LOGD("Not ready to load animation mode data (not connected or ABF2 not discovered)");
+        return;
+    }
+
+    // The store's connect sequence owns the link while it runs; this read waits
+    // for the session-complete callback rather than racing it
+    if (robo_cat_ears::AnimationStoreService::getInstance()->getState() ==
+        robo_cat_ears::AnimationStoreState::FETCHING) {
+        ESP_UTILS_LOGD("Store connect sequence in flight, deferring animation mode read");
         return;
     }
 

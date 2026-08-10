@@ -33,6 +33,9 @@ constexpr size_t LIST_ENTRY_FIXED_SIZE = 18;
 // A response that never arrives means "unknown", never "failed"
 constexpr uint32_t REQUEST_TIMEOUT_MS = 5000;
 
+// How many times a connect-sequence read is tried before we admit defeat
+constexpr uint8_t FETCH_ATTEMPT_LIMIT = 2;
+
 } // namespace
 
 AnimationStoreService *AnimationStoreService::_instance = nullptr;
@@ -48,11 +51,10 @@ AnimationStoreService *AnimationStoreService::getInstance()
 AnimationStoreService::AnimationStoreService()
     : _state(AnimationStoreState::NO_CONNECTION)
     , _cached_address("")
-    , _slot_count(0)
-    , _max_chunk_bytes(0)
     , _watch_stale(false)
     , _last_play_was_stale(false)
     , _subscribe_succeeded(false)
+    , _fetch_attempts(0)
     , _pending_sub_opcode(0)
     , _pending_corr(0)
     , _next_corr(0)
@@ -62,6 +64,7 @@ AnimationStoreService::AnimationStoreService()
     , _rx_complete(false)
     , _timeout_timer(nullptr)
     , _changed_callback(nullptr)
+    , _session_complete_callback(nullptr)
 {
 }
 
@@ -74,8 +77,15 @@ void AnimationStoreService::notifyChanged()
 
 void AnimationStoreService::setState(AnimationStoreState state)
 {
+    bool was_fetching = _state == AnimationStoreState::FETCHING;
     _state = state;
     notifyChanged();
+
+    // The connect sequence holds the link to itself until it settles, so nothing
+    // else may issue a GATT operation before this fires
+    if (was_fetching && state != AnimationStoreState::FETCHING && _session_complete_callback) {
+        _session_complete_callback();
+    }
 }
 
 void AnimationStoreService::beginSession(const std::string &device_address)
@@ -84,13 +94,12 @@ void AnimationStoreService::beginSession(const std::string &device_address)
         ESP_LOGI(TAG, "New device %s, discarding any cached slots from %s",
                  device_address.c_str(), _cached_address.c_str());
         _entries.clear();
-        _slot_count = 0;
-        _max_chunk_bytes = 0;
         _cached_address = device_address;
     }
 
     stopTimeout();
     _pending_sub_opcode = 0;
+    _fetch_attempts = 0;
     _watch_stale = false;
     _last_play_was_stale = false;
     setState(AnimationStoreState::FETCHING);
@@ -119,8 +128,10 @@ void AnimationStoreService::endSession()
     stopTimeout();
     _pending_sub_opcode = 0;
 
-    // The disconnect we asked for; keep saying why rather than blaming the link
+    // The disconnect we asked for; keep saying why rather than blaming the link.
+    // Still notify, so the buttons dim on the way out.
     if (_state == AnimationStoreState::VERSION_MISMATCH) {
+        notifyChanged();
         return;
     }
 
@@ -145,6 +156,13 @@ bool AnimationStoreService::play(uint8_t slot)
     if (_state != AnimationStoreState::READY) {
         return false;
     }
+
+    // Whatever the last tap turned up, this one supersedes it
+    if (_last_play_was_stale) {
+        _last_play_was_stale = false;
+        notifyChanged();
+    }
+
     return sendRequest(SUB_PLAY, &slot, 1);
 }
 
@@ -262,14 +280,18 @@ void AnimationStoreService::onCapabilityResponse(uint8_t status)
         ESP_LOGE(TAG, "Store protocol v%u, this watch speaks v%u; %s is stale",
                  version, ANIMATION_STORE_PROTOCOL_VERSION, _watch_stale ? "the watch" : "the ears");
         setState(AnimationStoreState::VERSION_MISMATCH);
-        BluetoothService::getInstance()->disconnect();
+        BluetoothService *bt = BluetoothService::getInstance();
+        if (bt) {
+            bt->disconnect();
+        }
         return;
     }
 
-    // Anything past the four bytes we know is a later version's addition
-    _slot_count = _rx_buffer[1];
-    _max_chunk_bytes = (static_cast<uint16_t>(_rx_buffer[2]) << 8) | _rx_buffer[3];
-    ESP_LOGI(TAG, "Store capability: %u slots, %u byte chunks", _slot_count, _max_chunk_bytes);
+    // Anything past the four bytes we know is a later version's addition.
+    // A play-only client needs neither figure: it never picks a slot itself,
+    // and every request it sends fits one frame.
+    ESP_LOGI(TAG, "Store capability: %u slots, %u byte chunks",
+             _rx_buffer[1], (static_cast<uint16_t>(_rx_buffer[2]) << 8) | _rx_buffer[3]);
 
     if (!sendRequest(SUB_LIST, nullptr, 0)) {
         setState(AnimationStoreState::FETCH_FAILED);
@@ -318,10 +340,6 @@ void AnimationStoreService::onPlayResponse(uint8_t status)
 {
     // No duration on the wire, so an OK is the end of it as far as the UI goes
     if (status == STATUS_OK) {
-        if (_last_play_was_stale) {
-            _last_play_was_stale = false;
-            notifyChanged();
-        }
         return;
     }
 
@@ -344,9 +362,15 @@ void AnimationStoreService::onTimeout()
 
     ESP_LOGW(TAG, "Sub-opcode 0x%02x timed out", sub_opcode);
 
-    // A PLAY that went unanswered may still have played; ask what is actually there
+    // A timeout means unknown, never failed. A PLAY may still have played, so
+    // ask what is actually there; a read is idempotent, so retry it once before
+    // telling the user anything went wrong.
     if (sub_opcode == SUB_PLAY) {
         sendRequest(SUB_LIST, nullptr, 0);
+        return;
+    }
+
+    if (++_fetch_attempts < FETCH_ATTEMPT_LIMIT && sendRequest(sub_opcode, nullptr, 0)) {
         return;
     }
 
