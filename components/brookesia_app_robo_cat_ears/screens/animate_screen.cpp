@@ -107,11 +107,11 @@ AnimateScreen::AnimateScreen(lv_obj_t *parent_screen,
     lv_obj_set_scroll_dir(scroll_container, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(scroll_container, LV_SCROLLBAR_MODE_OFF);
 
-    // Create 10 buttons in a 2-column grid (5 rows)
-    const char *button_labels[] = {"Right", "Left", "Happy :)", "Sad :(", "Wiggle", "Radar", "Curious", "Alert", "Timid", "Bounce"};
-    const char *button_commands[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"};  // Commands to send for each button
+    // Create 8 buttons in a 2-column grid (4 rows)
+    const char *button_labels[] = {"Right", "Left", "Happy :)", "Sad :(", "Wiggle", "Radar", "Curious", "Alert"};
+    const char *button_commands[] = {"1", "2", "3", "4", "5", "6", "7", "8"};  // Commands to send for each button
 
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 8; i++) {
         int row = i / 2;
         int col = i % 2;
         int x_offset = col * (btn_width + 10) + 10;

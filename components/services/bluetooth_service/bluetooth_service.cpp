@@ -741,9 +741,6 @@ bool BluetoothService::writeDataPacket(const DataPacket &packet)
         case DataType::CALIBRATION:
             type_name = "CALIBRATION";
             break;
-        case DataType::CUSTOM_ANIMATION:
-            type_name = "CUSTOM_ANIMATION";
-            break;
         default:
             break;
     }

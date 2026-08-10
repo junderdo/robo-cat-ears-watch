@@ -33,8 +33,7 @@ enum class DataType : uint8_t {
     ANIMATION = 0x01,
     LIGHTING = 0x02,
     CALIBRATION = 0x03,
-    ANIMATION_MODE = 0x04,
-    CUSTOM_ANIMATION = 0x05
+    ANIMATION_MODE = 0x04
 };
 
 /**
