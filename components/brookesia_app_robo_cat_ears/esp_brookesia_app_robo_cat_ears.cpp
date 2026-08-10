@@ -15,6 +15,7 @@
 #define ESP_UTILS_LOG_TAG "BS:RoboCatEars"
 #include "esp_lib_utils.h"
 #include "esp_brookesia_app_robo_cat_ears.hpp"
+#include "animation_store_service.hpp"
 
 #include <cstring>
 #include <algorithm>
@@ -304,6 +305,16 @@ bool RoboCatEars::run(void)
             // Store the disconnected device address for reconnection
             lv_async_call([](void* user_data) {
                 auto* app = static_cast<RoboCatEars*>(user_data);
+                auto* store = robo_cat_ears::AnimationStoreService::getInstance();
+                store->endSession();
+
+                // We hung up on a protocol version we cannot speak; reconnecting
+                // would only reach the same refusal in a loop
+                if (store->getState() == robo_cat_ears::AnimationStoreState::VERSION_MISMATCH) {
+                    ESP_UTILS_LOGW("Not reconnecting: store protocol version mismatch");
+                    return;
+                }
+
                 if (app->_bluetooth_service) {
                     app->_last_disconnected_address = app->_bluetooth_service->getLastConnectedAddress();
                     app->startReconnectionTimer();
@@ -322,25 +333,36 @@ bool RoboCatEars::run(void)
 
         // Service ready callback - fires when BLE service is discovered after (re)connect
         _bluetooth_service->setServiceReadyCallback([this]() {
-            ESP_UTILS_LOGI("Bluetooth service ready, loading screen data");
+            ESP_UTILS_LOGI("Bluetooth service ready, running the store connect sequence");
             lv_async_call([](void* user_data) {
                 auto* app = static_cast<RoboCatEars*>(user_data);
-                // Load lighting data first. Animation mode data is loaded after a delay
-                // because BluetoothService only supports one pending read at a time —
-                // issuing both simultaneously overwrites the first callback.
-                if (app->_glow_screen) {
-                    app->_glow_screen->loadLightingData();
+                // Fetch the ears' store once per connection, not per screen entry.
+                // A reconnect re-runs CAPABILITY too, since the MTU may differ.
+                // Nothing else may talk to the ears until this settles.
+                if (app->_bluetooth_service) {
+                    robo_cat_ears::AnimationStoreService::getInstance()->beginSession(
+                        app->_bluetooth_service->getConnectedAddress());
                 }
-                // Load animation mode data after 600ms to let the lighting read complete
-                lv_timer_t *timer = lv_timer_create([](lv_timer_t *t) {
-                    auto *app = static_cast<RoboCatEars*>(t->user_data);
-                    if (app->_animate_screen) {
-                        app->_animate_screen->loadAnimationModeData();
-                    }
-                    lv_timer_del(t);
-                }, 600, app);
-                lv_timer_set_repeat_count(timer, 1);
             }, this);
+        });
+
+        // The store's connect sequence is done with the link, so the remaining
+        // screens may read now. Lighting first, then animation mode after a delay,
+        // because BluetoothService only supports one pending read at a time —
+        // issuing both simultaneously overwrites the first callback.
+        robo_cat_ears::AnimationStoreService::getInstance()->setSessionCompleteCallback([this]() {
+            ESP_UTILS_LOGI("Store connect sequence settled, loading remaining screen data");
+            if (_glow_screen) {
+                _glow_screen->loadLightingData();
+            }
+            lv_timer_t *timer = lv_timer_create([](lv_timer_t *t) {
+                auto *app = static_cast<RoboCatEars*>(lv_timer_get_user_data(t));
+                if (app->_animate_screen) {
+                    app->_animate_screen->loadAnimationModeData();
+                }
+                lv_timer_del(t);
+            }, 600, this);
+            lv_timer_set_repeat_count(timer, 1);
         });
     }
 
@@ -464,6 +486,7 @@ void RoboCatEars::updateConnectionStatus()
             
             // Force refresh the device list after setting connected device
             app->updateDeviceList();
+            app->_animate_screen->refreshAnimations();
         } else {
             // Disconnected state
             lv_label_set_text(app->_scan_screen->getStatusLabel(), "Not connected");
@@ -493,6 +516,7 @@ void RoboCatEars::updateConnectionStatus()
             // Force refresh the device list after clearing connected device
             // This ensures the list is updated with the cleared connection state
             app->updateDeviceList();
+            app->_animate_screen->refreshAnimations();
         }
     }, this);
 }

@@ -101,6 +101,8 @@ BluetoothService::BluetoothService()
     , _scanning_status_callback(nullptr)
     , _service_ready_callback(nullptr)
     , _read_data_callback(nullptr)
+    , _indication_callback(nullptr)
+    , _subscribed_callback(nullptr)
     , _read_pending(false)
     , _read_complete(false)
     , _read_success(false)
@@ -268,12 +270,14 @@ bool BluetoothService::init()
             service->_mtu_configured = false;
             service->_mtu = ESP_GATT_DEF_BLE_MTU_SIZE;
             service->_connecting = false;
+            service->_indication_callback = nullptr;
+            service->_subscribed_callback = nullptr;
             
             // Notify connection status via callback
             if (service->_connection_status_callback) {
                 service->_connection_status_callback(false, "", "");
             }
-            
+
             // Notify disconnection via dedicated callback
             if (service->_disconnection_callback) {
                 service->_disconnection_callback(disconnected_device_name, disconnected_address);
@@ -394,6 +398,43 @@ bool BluetoothService::init()
                                                 service->_read_buffer, service->_read_length);
                     service->_read_data_callback = nullptr;  // Clear after invoking
                 }
+            }
+            break;
+        case ESP_GATTC_REG_FOR_NOTIFY_EVT: {
+            // Registering only arms the local stack; the ears deliver nothing
+            // until their CCCD is written.
+            if (param->reg_for_notify.status != ESP_GATT_OK) {
+                service->finishSubscribe(false);
+                break;
+            }
+
+            esp_bt_uuid_t cccd_uuid = {};
+            cccd_uuid.len = ESP_UUID_LEN_16;
+            cccd_uuid.uuid.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
+
+            uint16_t count = 1;
+            esp_gattc_descr_elem_t descr = {};
+            esp_gatt_status_t status = esp_ble_gattc_get_descr_by_char_handle(
+                gattc_if, service->_conn_id, service->_char_handle_abf2, cccd_uuid, &descr, &count);
+
+            // The ears' build config decides which bit ABF2 declares, and the two
+            // are indistinguishable to us, so follow whatever was discovered.
+            uint16_t cccd_value = (service->_char_properties_abf2 & ESP_GATT_CHAR_PROP_BIT_INDICATE) ? 0x0002 : 0x0001;
+
+            if (status != ESP_GATT_OK || count == 0 ||
+                esp_ble_gattc_write_char_descr(gattc_if, service->_conn_id, descr.handle,
+                                               sizeof(cccd_value), (uint8_t *)&cccd_value,
+                                               ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE) != ESP_OK) {
+                service->finishSubscribe(false);
+            }
+            break;
+        }
+        case ESP_GATTC_WRITE_DESCR_EVT:
+            service->finishSubscribe(param->write.status == ESP_GATT_OK);
+            break;
+        case ESP_GATTC_NOTIFY_EVT:
+            if (param->notify.handle == service->_char_handle_abf2 && service->_indication_callback) {
+                service->_indication_callback(param->notify.value, param->notify.value_len);
             }
             break;
         default:
@@ -714,7 +755,7 @@ bool BluetoothService::setIdleConnParams(bool idle)
     return true;
 }
 
-bool BluetoothService::writeDataPacket(const DataPacket &packet)
+bool BluetoothService::writeDataPacket(const DataPacket &packet, bool with_response)
 {
     if (!_connected || _gattc_if == ESP_GATT_IF_NONE) {
         ESP_LOGW(TAG, "Cannot write: not connected");
@@ -765,7 +806,7 @@ bool BluetoothService::writeDataPacket(const DataPacket &packet)
         _char_handle_abf1,
         packed_data.length(),
         write_buffer,
-        ESP_GATT_WRITE_TYPE_NO_RSP,
+        with_response ? ESP_GATT_WRITE_TYPE_RSP : ESP_GATT_WRITE_TYPE_NO_RSP,
         ESP_GATT_AUTH_REQ_NONE
     );
     
@@ -832,6 +873,43 @@ bool BluetoothService::readDataPacket(DataType data_type, ReadDataCallback callb
     }
     
     ESP_LOGI(TAG, "Read characteristic request sent successfully");
+    return true;
+}
+
+void BluetoothService::finishSubscribe(bool success)
+{
+    if (!_subscribed_callback) {
+        return;
+    }
+
+    SubscribedCallback callback = _subscribed_callback;
+    _subscribed_callback = nullptr;
+    callback(success);
+}
+
+bool BluetoothService::subscribeToIndications(IndicationCallback on_indication, SubscribedCallback on_subscribed)
+{
+    if (!_connected || _gattc_if == ESP_GATT_IF_NONE) {
+        ESP_LOGW(TAG, "Cannot subscribe: not connected");
+        return false;
+    }
+
+    if (!_service_discovered || _char_handle_abf2 == 0) {
+        ESP_LOGW(TAG, "Cannot subscribe: ABF2 characteristic not discovered yet");
+        return false;
+    }
+
+    _indication_callback = on_indication;
+    _subscribed_callback = on_subscribed;
+
+    esp_err_t ret = esp_ble_gattc_register_for_notify(_gattc_if, _remote_bda, _char_handle_abf2);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register for notify: %s", esp_err_to_name(ret));
+        _indication_callback = nullptr;
+        _subscribed_callback = nullptr;
+        return false;
+    }
+
     return true;
 }
 

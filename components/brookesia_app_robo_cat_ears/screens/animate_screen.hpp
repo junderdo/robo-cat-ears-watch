@@ -50,10 +50,28 @@ public:
      */
     void loadAnimationModeData();
 
+    /**
+     * @brief Rebuild the grid from the ears' reported store
+     *
+     * The grid is the eight built-ins followed by whatever slots the ears say
+     * they hold, in slot order. Empty slots are not drawn at all.
+     */
+    void refreshAnimations();
+
 private:
+    lv_obj_t *createAnimationButton(int position, const char *name, const lv_font_t *font,
+                                    lv_event_cb_t on_click, void *action);
+
+    static void onBuiltInClicked(lv_event_t *e);
+    static void onStoredSlotClicked(lv_event_t *e);
+
     lv_obj_t *_container;
     lv_obj_t *_status_label;
     lv_obj_t *_auto_animate_switch;
+    lv_obj_t *_scroll_container;
+
+    int _btn_width;
+    int _btn_height;
 
     bool _loading_from_device;
 
