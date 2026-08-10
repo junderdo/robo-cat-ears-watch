@@ -2,7 +2,7 @@ dependencies:
   brookesia_core:
     dependencies: []
     source:
-      path: /home/jeffu/personal/projects/robo-cat-ears-watch/components/brookesia_core
+      path: /home/jeffu/personal/projects/robo-cat-ears-watch/robo-cat-ears-watch/components/brookesia_core
       type: local
     version: 0.6.0-beta2
   espressif/cmake_utilities:
@@ -172,19 +172,19 @@ dependencies:
       type: service
     version: 1.1.0~2
   espressif/esp_lvgl_port:
-    component_hash: fb6c1fdfe70d4ca39a035d63ca394a35f17ec84ce16ff98ecb13a54155d75da4
+    component_hash: b6360960f47b6776462e7092861b3ea66477ffb762a01baa0aecbb3d74cd50f4
     dependencies:
     - name: idf
       require: private
-      version: '>=5.2'
+      version: '>=5.1'
     - name: lvgl/lvgl
       registry_url: https://components.espressif.com
       require: public
       version: '>=8,<10'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
-    version: 2.8.0~1
+    version: 2.7.2
   espressif/esp_mmap_assets:
     component_hash: b47cf5249d7a7ba8448f165c6de395503a2c2695769ff6d3fa06f2fa4595b270
     dependencies:
@@ -358,6 +358,7 @@ direct_dependencies:
 - espressif/esp-lib-utils
 - espressif/esp_audio_simple_player
 - espressif/esp_coze
+- espressif/esp_lvgl_port
 - espressif/esp_mmap_assets
 - espressif/esp_websocket_client
 - espressif/gmf_ai_audio
@@ -369,6 +370,6 @@ direct_dependencies:
 - idf
 - lvgl/lvgl
 - waveshare/esp32_s3_touch_amoled_2_06
-manifest_hash: fb1e43ef74bedeff29f55ecde7f7b9638a2a6bc86665f8be500e4945b74a6ccd
+manifest_hash: a5376d2fb58c448bda28e8c0128050037ee5842341da4f3ad52c3071018c0bca
 target: esp32s3
 version: 2.0.0
