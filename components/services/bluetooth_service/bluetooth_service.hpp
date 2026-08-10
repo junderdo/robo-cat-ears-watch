@@ -33,7 +33,8 @@ enum class DataType : uint8_t {
     ANIMATION = 0x01,
     LIGHTING = 0x02,
     CALIBRATION = 0x03,
-    ANIMATION_MODE = 0x04
+    ANIMATION_MODE = 0x04,
+    STORE = 0x06
 };
 
 /**
@@ -79,6 +80,8 @@ public:
     using ScanningStatusCallback = std::function<void(bool scanning)>;
     using ServiceReadyCallback = std::function<void()>;
     using ReadDataCallback = std::function<void(bool success, DataType type, const uint8_t *data, size_t length)>;
+    using IndicationCallback = std::function<void(const uint8_t *data, size_t length)>;
+    using SubscribedCallback = std::function<void(bool success)>;
 
     /**
      * @brief Get the singleton instance of BluetoothService
@@ -131,9 +134,25 @@ public:
      * @brief Write a data packet to the ABF1 characteristic
      *
      * @param packet Data packet containing type and data
+     * @param with_response Use a Write Request rather than a Write Command, so
+     *                      the link layer acknowledges each frame. Required by
+     *                      the animation store surface.
      * @return true if write initiated successfully, otherwise false
      */
-    bool writeDataPacket(const DataPacket &packet);
+    bool writeDataPacket(const DataPacket &packet, bool with_response = false);
+
+    /**
+     * @brief Subscribe to indications on ABF2
+     *
+     * Arms the local stack and writes the peer's CCCD. The store surface
+     * refuses to execute anything until the CCCD is set, so this must complete
+     * before any 0x06 request is sent.
+     *
+     * @param on_indication Invoked from the BLE task for every indicated frame
+     * @param on_subscribed Invoked from the BLE task once the CCCD write settles
+     * @return true if the subscription was initiated, otherwise false
+     */
+    bool subscribeToIndications(IndicationCallback on_indication, SubscribedCallback on_subscribed);
 
     /**
      * @brief Read a data packet from the ABF1 characteristic
@@ -328,6 +347,8 @@ private:
     ScanningStatusCallback _scanning_status_callback;
     ServiceReadyCallback _service_ready_callback;
     ReadDataCallback _read_data_callback;
+    IndicationCallback _indication_callback;
+    SubscribedCallback _subscribed_callback;
     
     // Simple buffer for read results (avoid callback issues in BLE context)
     volatile bool _read_pending;

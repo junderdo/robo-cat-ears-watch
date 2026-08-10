@@ -50,10 +50,29 @@ public:
      */
     void loadAnimationModeData();
 
+    /**
+     * @brief Rebuild the grid from the ears' reported store
+     *
+     * The grid is the eight built-ins followed by whatever slots the ears say
+     * they hold, in slot order. Empty slots are not drawn at all.
+     */
+    void refreshAnimations();
+
 private:
+    void createAnimationButton(int position, const char *name, const lv_font_t *font, int encoded_action);
+
+    /**
+     * @brief The sentence describing the store's state, or nullptr when the grid speaks for itself
+     */
+    const char *storeMessage() const;
+
     lv_obj_t *_container;
     lv_obj_t *_status_label;
     lv_obj_t *_auto_animate_switch;
+    lv_obj_t *_scroll_container;
+
+    int _btn_width;
+    int _btn_height;
 
     bool _loading_from_device;
 
