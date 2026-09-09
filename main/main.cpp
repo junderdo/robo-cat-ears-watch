@@ -17,6 +17,7 @@
 #include "esp_brookesia_app_system_info.hpp"
 #include "esp_brookesia_app_robo_cat_ears.hpp"
 #include "bluetooth_service.hpp"
+#include "power_service.hpp"
 #include "esp_wifi.h"
 
 // C includes
@@ -170,52 +171,39 @@ extern "C" void app_main(void)
             }
         }, 2000, phone);
 
-        /* Create a task to handle display sleep timeout */
-        lv_timer_create([](lv_timer_t *t) {
-            static bool display_awake = true;
-            lv_disp_t *disp = lv_disp_get_default();
-            
-            if (!disp) {
-                return;
-            }
-
-            uint32_t inactive_time = lv_disp_get_inactive_time(disp);
-
+        /* Start the power ladder. It owns the panel; everything else reacts to
+         * the rung it announces. */
+        robo_cat_ears::PowerService *power = robo_cat_ears::PowerService::getInstance();
+        power->setRungChangedCallback([](robo_cat_ears::Rung from, robo_cat_ears::Rung to) {
             robo_cat_ears::BluetoothService *bluetooth = robo_cat_ears::BluetoothService::getInstance();
 
-            /* Sleep the panel after timeout */
-            if (display_awake && inactive_time >= apps::DISPLAY_TIMEOUT_MS) {
-                ESP_UTILS_LOGI("Sleeping display due to inactivity (%lu ms)", inactive_time);
-                bsp_display_sleep(true);
-                if (bluetooth) {
-                    bluetooth->setIdleConnParams(true);
-                }
-                if (!g_wake_shield) {
-                    g_wake_shield = lv_obj_create(lv_layer_top());
-                    lv_obj_remove_style_all(g_wake_shield);
-                    lv_obj_set_size(g_wake_shield, lv_pct(100), lv_pct(100));
-                    lv_obj_clear_flag(g_wake_shield, LV_OBJ_FLAG_SCROLLABLE);
-                    lv_obj_add_flag(g_wake_shield, LV_OBJ_FLAG_CLICKABLE);
-                    lv_obj_add_event_cb(g_wake_shield, [](lv_event_t *e) {
-                        ESP_UTILS_LOGI("Wake tap released, removing wake shield");
-                        lv_obj_del_async(g_wake_shield);
-                        g_wake_shield = nullptr;
-                    }, LV_EVENT_RELEASED, nullptr);
-                }
-                display_awake = false;
-            }
-            /* Wake the panel when touch detected */
-            else if (!display_awake && inactive_time < apps::DISPLAY_TIMEOUT_MS) {
-                ESP_UTILS_LOGI("Waking display due to touch activity");
-                bsp_display_sleep(false);
+            if (to == robo_cat_ears::Rung::Active) {
                 /* Panel RAM is not guaranteed across sleep, so repaint everything */
                 lv_obj_invalidate(lv_scr_act());
                 if (bluetooth) {
                     bluetooth->setIdleConnParams(false);
                 }
-                display_awake = true;
+                return;
             }
-        }, 500, nullptr);  // Check every 500ms
+
+            if (bluetooth) {
+                bluetooth->setIdleConnParams(true);
+            }
+
+            if (!g_wake_shield) {
+                g_wake_shield = lv_obj_create(lv_layer_top());
+                lv_obj_remove_style_all(g_wake_shield);
+                lv_obj_set_size(g_wake_shield, lv_pct(100), lv_pct(100));
+                lv_obj_clear_flag(g_wake_shield, LV_OBJ_FLAG_SCROLLABLE);
+                lv_obj_add_flag(g_wake_shield, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_add_event_cb(g_wake_shield, [](lv_event_t *e) {
+                    ESP_UTILS_LOGI("Wake tap released, removing wake shield");
+                    lv_obj_del_async(g_wake_shield);
+                    g_wake_shield = nullptr;
+                }, LV_EVENT_RELEASED, nullptr);
+            }
+        });
+        ESP_UTILS_CHECK_FALSE_EXIT(power->init(), "Init power service failed");
     }
 
     if constexpr (EXAMPLE_SHOW_MEM_INFO) {
