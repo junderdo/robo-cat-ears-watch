@@ -14,7 +14,7 @@ class SystemStatus;
 namespace esp_brookesia::apps {
 
 /**
- * @brief System Info app displays AXP2101 chip data
+ * @brief System Info app: AXP2101 diagnostics plus the watch's own settings
  *
  */
 class SystemInfo: public systems::phone::App {
@@ -64,9 +64,24 @@ protected:
     bool back(void) override;
 
 private:
+    /**
+     * @brief Build the settings section, currently just screen brightness
+     *
+     * @param screen Parent object to build into
+     * @param y_offset Vertical offset below the diagnostics readout
+     */
+    void createSettings(lv_obj_t *screen, int16_t y_offset);
+
+    /**
+     * @brief Redraw the screen brightness label from the service's value
+     */
+    void updateScreenBrightnessLabel();
+
     static SystemInfo *_instance;
     
     lv_obj_t *_info_label;  // Label to display system information
+    lv_obj_t *_screen_brightness_label;
+    lv_obj_t *_screen_brightness_slider;
     SystemStatus *_system_status;  // System status instance for polling PMU data
 };
 

@@ -16,6 +16,7 @@
 #include "esp_lib_utils.h"
 #include "esp_brookesia_app_robo_cat_ears.hpp"
 #include "animation_store_service.hpp"
+#include "power_service.hpp"
 
 #include <cstring>
 #include <algorithm>
@@ -799,18 +800,13 @@ void RoboCatEars::startReconnectionTimer()
             return;
         }
         
-        // Check if the display is awake by checking display inactive time
-        lv_disp_t *disp = lv_disp_get_default();
-        if (disp) {
-            uint32_t inactive_time = lv_disp_get_inactive_time(disp);
-
-            // Don't attempt reconnection if the display is asleep (device is idle)
-            if (inactive_time >= DISPLAY_TIMEOUT_MS) {
-                ESP_UTILS_LOGD("Display is asleep (inactive %lu ms), skipping reconnection attempt", inactive_time);
-                return;
-            }
+        // Don't attempt reconnection unless the user is actually here
+        if (robo_cat_ears::PowerService::getInstance()->rung() != robo_cat_ears::Rung::Active) {
+            ESP_UTILS_LOGD("Not on the Active rung, skipping reconnection attempt");
+            return;
         }
-        
+
+
         // Don't attempt if already connected or connecting or already scanning
         if (app->_bluetooth_service->isConnected()) {
             ESP_UTILS_LOGI("Already connected, stopping reconnection timer");

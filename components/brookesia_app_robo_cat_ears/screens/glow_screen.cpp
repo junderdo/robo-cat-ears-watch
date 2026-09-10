@@ -23,21 +23,23 @@ namespace {
 
 constexpr const char *NVS_NAMESPACE = "glow";
 constexpr const char *NVS_KEY_COLORS = "colors";
-constexpr const char *NVS_KEY_BRIGHT = "brightness";
+// Stored key string stays "brightness": renaming it would orphan every
+// existing user's saved glow brightness.
+constexpr const char *NVS_KEY_GLOW_BRIGHT = "brightness";
 
 // Perceived LED output rises roughly as the 2.2 power of drive level, so the
 // slider position is raised to that power to make its travel feel even. If the
 // peripheral firmware already gamma-corrects incoming RGB, this double-applies
 // and the low end of the slider will be unusable - drop this to 1.0 if so.
-constexpr float BRIGHTNESS_GAMMA = 2.2f;
+constexpr float GLOW_BRIGHTNESS_GAMMA = 2.2f;
 
 // The translation layer: a color the user picked -> the color actually sent.
-uint32_t applyBrightness(uint32_t rgb, int brightness)
+uint32_t applyGlowBrightness(uint32_t rgb, int brightness)
 {
     if (brightness >= 100) return rgb;
     if (brightness <= 0) return 0;
 
-    const float f = powf(brightness / 100.0f, BRIGHTNESS_GAMMA);
+    const float f = powf(brightness / 100.0f, GLOW_BRIGHTNESS_GAMMA);
     const uint32_t r = (uint32_t)lroundf(((rgb >> 16) & 0xFF) * f);
     const uint32_t g = (uint32_t)lroundf(((rgb >> 8) & 0xFF) * f);
     const uint32_t b = (uint32_t)lroundf((rgb & 0xFF) * f);
@@ -59,10 +61,10 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
       _last_reorder_from_index(-1),
       _last_reorder_to_index(-1),
       _loading_from_device(false),
-      _brightness_slider(nullptr),
-      _brightness_label(nullptr),
-      _brightness_debounce_timer(nullptr),
-      _brightness(100),
+      _glow_brightness_slider(nullptr),
+      _glow_brightness_label(nullptr),
+      _glow_brightness_debounce_timer(nullptr),
+      _glow_brightness(100),
       _loaded_from_nvs(false)
 {
     ESP_UTILS_LOGD("Creating glow screen");
@@ -100,46 +102,47 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     // Enable layout animations (600ms for smooth, visible animation)
     lv_obj_set_style_anim_time(_color_list_container, 600, 0);
 
-    // Overall brightness. Applied only to the colors written over BLE - the
-    // swatches above always show what the user actually picked.
-    _brightness_label = lv_label_create(_container);
-    lv_obj_set_style_text_font(_brightness_label, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(_brightness_label, lv_color_hex(0xC0C0C0), 0);
-    lv_obj_align(_brightness_label, LV_ALIGN_TOP_LEFT, 20, 228);
+    // Glow brightness - the ears' LEDs, not this panel. Applied only to the
+    // colors written over BLE; the swatches above always show what the user
+    // actually picked.
+    _glow_brightness_label = lv_label_create(_container);
+    lv_obj_set_style_text_font(_glow_brightness_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(_glow_brightness_label, lv_color_hex(0xC0C0C0), 0);
+    lv_obj_align(_glow_brightness_label, LV_ALIGN_TOP_LEFT, 20, 228);
 
-    _brightness_slider = lv_slider_create(_container);
-    lv_obj_set_size(_brightness_slider, lv_pct(80), 24);
-    lv_obj_align(_brightness_slider, LV_ALIGN_TOP_MID, 0, 256);
-    lv_slider_set_range(_brightness_slider, 0, 100);
-    lv_slider_set_value(_brightness_slider, _brightness, LV_ANIM_OFF);
+    _glow_brightness_slider = lv_slider_create(_container);
+    lv_obj_set_size(_glow_brightness_slider, lv_pct(80), 24);
+    lv_obj_align(_glow_brightness_slider, LV_ALIGN_TOP_MID, 0, 256);
+    lv_slider_set_range(_glow_brightness_slider, 0, 100);
+    lv_slider_set_value(_glow_brightness_slider, _glow_brightness, LV_ANIM_OFF);
 
     // Debounced so dragging doesn't flood the BLE link - matches the speed
     // slider's pattern in modes_screen.
-    lv_obj_add_event_cb(_brightness_slider, [](lv_event_t *e) {
+    lv_obj_add_event_cb(_glow_brightness_slider, [](lv_event_t *e) {
         GlowScreen *screen = (GlowScreen *)lv_event_get_user_data(e);
         if (!screen) return;
 
         // Track the label live so dragging gives immediate feedback.
-        screen->_brightness = lv_slider_get_value(screen->_brightness_slider);
-        screen->updateBrightnessLabel();
+        screen->_glow_brightness = lv_slider_get_value(screen->_glow_brightness_slider);
+        screen->updateGlowBrightnessLabel();
 
-        if (screen->_brightness_debounce_timer) {
-            lv_timer_del(screen->_brightness_debounce_timer);
-            screen->_brightness_debounce_timer = nullptr;
+        if (screen->_glow_brightness_debounce_timer) {
+            lv_timer_del(screen->_glow_brightness_debounce_timer);
+            screen->_glow_brightness_debounce_timer = nullptr;
         }
 
-        screen->_brightness_debounce_timer = lv_timer_create([](lv_timer_t *timer) {
+        screen->_glow_brightness_debounce_timer = lv_timer_create([](lv_timer_t *timer) {
             GlowScreen *screen = (GlowScreen *)lv_timer_get_user_data(timer);
             if (screen) {
-                screen->_brightness_debounce_timer = nullptr;
-                // _brightness was already updated live by the slider callback, so
+                screen->_glow_brightness_debounce_timer = nullptr;
+                // _glow_brightness was already updated live by the slider callback, so
                 // setBrightness() would see no change and skip the send - write
                 // to the device directly instead.
-                ESP_UTILS_LOGI("Brightness set to %d%%", screen->_brightness);
+                ESP_UTILS_LOGI("Glow brightness set to %d%%", screen->_glow_brightness);
                 screen->saveLightingDataToDevice();
             }
         }, 300, screen);
-        lv_timer_set_repeat_count(screen->_brightness_debounce_timer, 1);
+        lv_timer_set_repeat_count(screen->_glow_brightness_debounce_timer, 1);
     }, LV_EVENT_VALUE_CHANGED, this);
 
     // Create "Add Color" button (below color list)
@@ -242,11 +245,11 @@ GlowScreen::GlowScreen(lv_obj_t *parent_screen)
     // Restore the user's own colors and brightness before touching the device.
     // These are authoritative: the peripheral only ever sees dimmed copies.
     _loaded_from_nvs = loadStateFromNvs();
-    lv_slider_set_value(_brightness_slider, _brightness, LV_ANIM_OFF);
-    updateBrightnessLabel();
+    lv_slider_set_value(_glow_brightness_slider, _glow_brightness, LV_ANIM_OFF);
+    updateGlowBrightnessLabel();
     if (_loaded_from_nvs) {
         updateColorList();
-        ESP_UTILS_LOGI("Restored %zu colors and brightness %d%% from NVS", _colors.size(), _brightness);
+        ESP_UTILS_LOGI("Restored %zu colors and glow brightness %d%% from NVS", _colors.size(), _glow_brightness);
     }
 
     ESP_UTILS_LOGD("Glow screen created successfully");
@@ -263,9 +266,9 @@ GlowScreen::~GlowScreen()
     // LVGL objects are automatically cleaned up when parent is deleted, but a
     // timer is not parented to one - a pending debounce would fire into a
     // destroyed screen.
-    if (_brightness_debounce_timer) {
-        lv_timer_del(_brightness_debounce_timer);
-        _brightness_debounce_timer = nullptr;
+    if (_glow_brightness_debounce_timer) {
+        lv_timer_del(_glow_brightness_debounce_timer);
+        _glow_brightness_debounce_timer = nullptr;
     }
 }
 
@@ -798,14 +801,14 @@ void GlowScreen::clearColors()
     ESP_UTILS_LOGD("Colors cleared");
 }
 
-void GlowScreen::updateBrightnessLabel()
+void GlowScreen::updateGlowBrightnessLabel()
 {
-    if (!_brightness_label) {
+    if (!_glow_brightness_label) {
         return;
     }
     char text[32];
-    snprintf(text, sizeof(text), "Brightness  %d%%", _brightness);
-    lv_label_set_text(_brightness_label, text);
+    snprintf(text, sizeof(text), "Glow Brightness  %d%%", _glow_brightness);
+    lv_label_set_text(_glow_brightness_label, text);
 }
 
 void GlowScreen::saveStateToNvs()
@@ -817,7 +820,7 @@ void GlowScreen::saveStateToNvs()
         return;
     }
 
-    nvs_set_u8(handle, NVS_KEY_BRIGHT, (uint8_t)_brightness);
+    nvs_set_u8(handle, NVS_KEY_GLOW_BRIGHT, (uint8_t)_glow_brightness);
 
     // A zero-length blob isn't valid, so an empty list is stored as "no key".
     if (_colors.empty()) {
@@ -841,9 +844,9 @@ bool GlowScreen::loadStateFromNvs()
         return false;
     }
 
-    uint8_t stored_brightness = 100;
-    if (nvs_get_u8(handle, NVS_KEY_BRIGHT, &stored_brightness) == ESP_OK) {
-        _brightness = (stored_brightness > 100) ? 100 : stored_brightness;
+    uint8_t stored_glow_brightness = 100;
+    if (nvs_get_u8(handle, NVS_KEY_GLOW_BRIGHT, &stored_glow_brightness) == ESP_OK) {
+        _glow_brightness = (stored_glow_brightness > 100) ? 100 : stored_glow_brightness;
     }
 
     bool have_colors = false;
@@ -909,12 +912,12 @@ void GlowScreen::saveLightingDataToDevice()
     // the only place brightness exists on the wire.
     lighting_data.colors.clear();
     for (const auto &color : _colors) {
-        lighting_data.colors.push_back(robo_cat_ears::RGBColor(applyBrightness(color, _brightness)));
+        lighting_data.colors.push_back(robo_cat_ears::RGBColor(applyGlowBrightness(color, _glow_brightness)));
     }
 
     // Write to device
     ESP_UTILS_LOGI("Saving lighting data to device: mode=%s, speed=%d, colors=%zu, brightness=%d%%",
-                   _current_mode.c_str(), _current_speed, _colors.size(), _brightness);
+                   _current_mode.c_str(), _current_speed, _colors.size(), _glow_brightness);
     
     if (!lighting_service->writeLightingData(&lighting_data)) {
         ESP_UTILS_LOGE("Failed to write lighting data to device");
