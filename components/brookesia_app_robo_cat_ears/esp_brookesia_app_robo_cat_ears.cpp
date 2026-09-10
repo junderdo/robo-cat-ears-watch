@@ -801,8 +801,8 @@ void RoboCatEars::startReconnectionTimer()
         }
         
         // Don't attempt reconnection unless the user is actually here
-        if (robo_cat_ears::PowerService::getInstance()->rung() != robo_cat_ears::Rung::Active) {
-            ESP_UTILS_LOGD("Not on the Active rung, skipping reconnection attempt");
+        if (robo_cat_ears::isPanelOff(robo_cat_ears::PowerService::getInstance()->rung())) {
+            ESP_UTILS_LOGD("Panel is off, skipping reconnection attempt");
             return;
         }
 

@@ -14,14 +14,28 @@ namespace robo_cat_ears {
 /**
  * @brief A rung of the power ladder
  *
- * The watch occupies exactly one rung at a time. Rungs descend by inactivity
- * and rise on user input. Suspended is declared but never entered yet.
+ * The watch occupies exactly one rung at a time. Rungs descend in order by
+ * inactivity and rise straight back to Active on user input. Active and Dimmed
+ * are panel-on; Idle and Suspended are panel-off. Suspended is declared but
+ * never entered yet.
  */
 enum class Rung : uint8_t {
     Active,
+    Dimmed,
     Idle,
     Suspended,
 };
+
+/**
+ * @brief Whether the panel is physically dark on this rung
+ *
+ * Panel-off is a property of a rung, not a rung of its own: Idle and Suspended
+ * are dark, Active and Dimmed are lit.
+ */
+constexpr bool isPanelOff(Rung rung)
+{
+    return rung == Rung::Idle || rung == Rung::Suspended;
+}
 
 /**
  * @brief Why something is holding the ladder at Active
@@ -87,6 +101,9 @@ public:
 
     /**
      * @brief The user's chosen screen brightness, 0-100
+     *
+     * The value the user picked, unaffected by auto-dim: dimming changes what
+     * the panel shows, never what the user chose.
      */
     uint8_t screenBrightness() const { return _screen_brightness; }
 

@@ -56,10 +56,10 @@ constexpr bool DEBUG_LOG_ENABLED = true;
 static SystemStatus *g_system_status = nullptr;
 Phone *g_phone = nullptr;  // Global phone instance for Bluetooth status updates
 
-// Transparent full-screen overlay created while the display sleeps. The tap
-// that wakes the display lands on it instead of the UI underneath, so waking
-// the device never triggers an accidental button press or slider change. It
-// deletes itself once that first tap is released.
+// Transparent full-screen overlay created whenever the ladder leaves Active.
+// The tap that wakes the watch lands on it instead of the UI underneath, so
+// waking the device never triggers an accidental button press or slider
+// change. It deletes itself once that first tap is released.
 static lv_obj_t *g_wake_shield = nullptr;
 
 extern "C" void app_main(void)
@@ -177,19 +177,22 @@ extern "C" void app_main(void)
         power->setRungChangedCallback([](robo_cat_ears::Rung from, robo_cat_ears::Rung to) {
             robo_cat_ears::BluetoothService *bluetooth = robo_cat_ears::BluetoothService::getInstance();
 
-            if (to == robo_cat_ears::Rung::Active) {
-                /* Panel RAM is not guaranteed across sleep, so repaint everything */
-                lv_obj_invalidate(lv_scr_act());
-                if (bluetooth) {
-                    bluetooth->setIdleConnParams(false);
+            /* Dimmed is as responsive as Active; only panel-off rungs slow the link down */
+            if (bluetooth) {
+                bluetooth->setIdleConnParams(robo_cat_ears::isPanelOff(to));
+            }
+
+            if (!robo_cat_ears::isPanelOff(to)) {
+                if (robo_cat_ears::isPanelOff(from)) {
+                    /* Panel RAM is not guaranteed across sleep, so repaint everything */
+                    lv_obj_invalidate(lv_scr_act());
                 }
                 return;
             }
 
-            if (bluetooth) {
-                bluetooth->setIdleConnParams(true);
-            }
-
+            /* Shield the UI once the panel goes dark, so the touch that wakes it
+             * never lands as a real interaction. Dimmed is left unshielded: the
+             * screen is visible, so a tap there is a deliberate one. */
             if (!g_wake_shield) {
                 g_wake_shield = lv_obj_create(lv_layer_top());
                 lv_obj_remove_style_all(g_wake_shield);
