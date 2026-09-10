@@ -17,8 +17,14 @@ namespace robo_cat_ears {
 
 namespace {
 
-constexpr uint32_t IDLE_TIMEOUT_MS = 15000;
+constexpr uint32_t DIM_TIMEOUT_MS = 5000;
+constexpr uint32_t IDLE_TIMEOUT_MS = 10000;
 constexpr uint32_t TICK_PERIOD_MS = 500;
+
+// Not clamped to SCREEN_BRIGHTNESS_MIN on purpose: that floor exists so a user
+// cannot hand-pick an unrecoverable black panel, and auto-dim recovers on any
+// touch.
+constexpr uint8_t DIM_DIVISOR = 2;
 
 // Long enough that dragging the slider settles first, short enough that the
 // value survives a battery pull moments later.
@@ -110,14 +116,26 @@ void PowerService::tick()
 
     uint32_t inactive_time = lv_disp_get_inactive_time(disp);
 
-    if (_rung == Rung::Active) {
-        if (_holds == 0 && inactive_time >= IDLE_TIMEOUT_MS) {
+    if (inactive_time < DIM_TIMEOUT_MS) {
+        if (_rung != Rung::Active) {
+            ESP_LOGI(TAG, "Rising to Active on touch activity");
+            enterRung(Rung::Active);
+        }
+        return;
+    }
+
+    if (_holds != 0) {
+        return;
+    }
+
+    if (inactive_time >= IDLE_TIMEOUT_MS) {
+        if (_rung == Rung::Active || _rung == Rung::Dimmed) {
             ESP_LOGI(TAG, "Descending to Idle after %lu ms of inactivity", inactive_time);
             enterRung(Rung::Idle);
         }
-    } else if (inactive_time < IDLE_TIMEOUT_MS) {
-        ESP_LOGI(TAG, "Rising to Active on touch activity");
-        enterRung(Rung::Active);
+    } else if (_rung == Rung::Active) {
+        ESP_LOGI(TAG, "Descending to Dimmed after %lu ms of inactivity", inactive_time);
+        enterRung(Rung::Dimmed);
     }
 }
 
@@ -130,14 +148,13 @@ void PowerService::enterRung(Rung next)
     Rung previous = _rung;
     _rung = next;
 
-    if (next == Rung::Active) {
-        bsp_display_sleep(false);
-        // bsp_display_sleep(false) ends by forcing the panel to 100%, so the
-        // user's level has to be put back after every wake.
-        applyScreenBrightness();
-    } else {
-        bsp_display_sleep(true);
+    if (isPanelOff(previous) != isPanelOff(next)) {
+        bsp_display_sleep(isPanelOff(next));
     }
+
+    // Every rung change re-applies, both to reach the dim level and because
+    // bsp_display_sleep(false) ends by forcing the panel to 100%.
+    applyScreenBrightness();
 
     if (_rung_changed_callback) {
         _rung_changed_callback(previous, next);
@@ -146,11 +163,13 @@ void PowerService::enterRung(Rung next)
 
 bool PowerService::applyScreenBrightness()
 {
-    if (_rung != Rung::Active) {
+    if (isPanelOff(_rung)) {
         return true;
     }
 
-    return bsp_display_brightness_set(_screen_brightness) == ESP_OK;
+    uint8_t level = (_rung == Rung::Dimmed) ? _screen_brightness / DIM_DIVISOR : _screen_brightness;
+
+    return bsp_display_brightness_set(level) == ESP_OK;
 }
 
 void PowerService::scheduleScreenBrightnessSave()
