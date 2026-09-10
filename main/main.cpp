@@ -182,7 +182,7 @@ extern "C" void app_main(void)
                 bluetooth->setIdleConnParams(robo_cat_ears::isPanelOff(to));
             }
 
-            if (to == robo_cat_ears::Rung::Active) {
+            if (!robo_cat_ears::isPanelOff(to)) {
                 if (robo_cat_ears::isPanelOff(from)) {
                     /* Panel RAM is not guaranteed across sleep, so repaint everything */
                     lv_obj_invalidate(lv_scr_act());
@@ -190,8 +190,9 @@ extern "C" void app_main(void)
                 return;
             }
 
-            /* Shield the UI on the way down from Active, so the touch that
-             * brings the watch back never lands as a real interaction */
+            /* Shield the UI once the panel goes dark, so the touch that wakes it
+             * never lands as a real interaction. Dimmed is left unshielded: the
+             * screen is visible, so a tap there is a deliberate one. */
             if (!g_wake_shield) {
                 g_wake_shield = lv_obj_create(lv_layer_top());
                 lv_obj_remove_style_all(g_wake_shield);
